@@ -1,0 +1,30 @@
+# PlayCricketBridge configuration
+
+# Input mode: pcs_bluetooth | api_poll | remote_manual | auto
+mode: auto
+
+playcricket:
+  api_key: ""              # Obtained from ECB after signing fair usage agreement
+  site_id: ""              # Your club's Play Cricket site ID
+  match_id: ""             # Match ID to follow (can be set at runtime)
+  poll_interval_s: 30      # Seconds between API polls
+
+bluetooth:
+  device_filter: "BespokeScore"   # PCS app Bluetooth device name prefix
+  auto_reconnect: true
+
+ble:
+  service_uuid: "12345678-1234-1234-1234-123456789abc"
+  char_uuid:    "abcdefab-cdef-cdef-cdef-abcdefabcdef"
+  device_name:  "CricketRemote"
+
+display:
+  ipc_socket: "/tmp/scoreboard.sock"
+  panel_rows: 64
+  panel_cols: 64
+  chain_length: 3        # Panels per parallel chain
+  parallel: 3            # Number of parallel chains (3 × 3 = 9 panels)
+  brightness: 75
+  brightness_schedule:
+    - { time: "06:00", brightness: 75 }
+    - { time: "20:00", brightness: 40 }
