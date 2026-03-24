@@ -8,15 +8,15 @@ HUB75 LED panel scoreboard running on a Raspberry Pi 3B, using the
 | Component | Notes |
 |-----------|-------|
 | Raspberry Pi 3B | Must run as root or with realtime scheduling |
-| HUB75 / HUB75E panel | 32×64 px default; chain/parallel configurable |
+| Electrodragon RGB Matrix Panel Drive Board | Uses `hardware_mapping = "regular"` (hzeller default) |
+| 64×64 HUB75 LED panel | 9 panels target (3×3 grid); single panel for initial testing |
 | 5 V / 4 A power supply | Per panel — never power panels from the Pi's GPIO 5 V |
 | Ribbon cable | Standard 16- or 32-pin IDC |
 
 ### Wiring
 
 See [`lib/rpi-rgb-led-matrix/wiring.md`](lib/rpi-rgb-led-matrix/wiring.md) for the full
-pinout.  The default `hardware_mapping = "regular"` maps to the original hzeller wiring.
-If you use an Adafruit RGB Matrix HAT, change it to `"adafruit-hat"` or `"adafruit-hat-pwm"`.
+pinout.  The Electrodragon board uses the default `hardware_mapping = "regular"` wiring.
 
 ## Building
 
