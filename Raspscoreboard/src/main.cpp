@@ -109,7 +109,7 @@ int main(int argc, char *argv[]) {
         DrawText(canvas, font, canvas_w - 20, canvas_h - 2, yellow, nullptr, "BR", 0);
 
         // Panel number labels
-        DrawText(canvas, font, 20, 35, white, nullptr, "PANEL 1", 0);
+        DrawText(canvas, font, 12, 35, white, nullptr, "PANEL 1", 0);
         DrawText(canvas, font, 84, 35, cyan, nullptr, "PANEL 2", 0);
 
         // Canvas dimensions
