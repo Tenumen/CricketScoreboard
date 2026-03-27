@@ -63,10 +63,14 @@ int main(int argc, char *argv[]) {
     if (!font_runs_label.LoadFont(path))
         fprintf(stderr, "Warning: could not load font '%s'\n", path);
 
-    rgb_matrix::Font font_number;     // Score numbers
+    rgb_matrix::Font font_number;     // OVERS/WKTS numbers
     snprintf(path, sizeof(path), "%stexgyre-27.bdf", base);
     if (!font_number.LoadFont(path))
         fprintf(stderr, "Warning: could not load font '%s'\n", path);
+
+    rgb_matrix::Font font_runs_num;   // RUNS number (large bold)
+    if (!font_runs_num.LoadFont("fonts/dejavu-mono-bold-46.bdf"))
+        fprintf(stderr, "Warning: could not load runs number font\n");
 
     int canvas_w = matrix->width();
     int canvas_h = matrix->height();
@@ -86,33 +90,33 @@ int main(int argc, char *argv[]) {
     while (!interrupt_received) {
         canvas->Fill(0, 0, 0);
 
-        // --- Labels at top ---
+        // --- Labels at top (aligned tops) ---
+        // 7x13B ascent ~11, so top = y - 11. For top=1: y=12
+        // 10x20 ascent ~16, so top = y - 16. For top=1: y=17
 
-        // OVERS label: 1/3 into left panel = x ~21, centred
-        // 7x13B: "OVERS" = 5*7 = 35px, start at 21 - 17 = 4
-        DrawText(canvas, font_label, 4, 13, white, nullptr, "OVERS", 0);
+        // OVERS label: 1/3 into left panel
+        DrawText(canvas, font_label, 4, 12, white, nullptr, "OVERS", 0);
 
         // RUNS label: centred on middle panel
-        // 10x20: "RUNS" = 4*10 = 40px, centre at x=96, start at 76
-        DrawText(canvas, font_runs_label, 76, 20, white, nullptr, "RUNS", 0);
+        DrawText(canvas, font_runs_label, 76, 17, white, nullptr, "RUNS", 0);
 
-        // WKTS label: 2/3 into right panel = x ~171, centred
-        // 7x13B: "WKTS" = 4*7 = 28px, start at 171 - 14 = 157
-        DrawText(canvas, font_label, 157, 13, white, nullptr, "WKTS", 0);
+        // WKTS label: 2/3 into right panel
+        DrawText(canvas, font_label, 157, 12, white, nullptr, "WKTS", 0);
 
-        // --- Numbers below labels ---
+        // --- Numbers (tops aligned) ---
+        // texgyre-27 ascent ~22, for top=24: y=46
+        // dejavu-bold-46 ascent ~34, for top=24: y=58
 
         // Overs (2-digit, green): centred under OVERS at x~21
         // texgyre-27: ~15px per digit, 2 digits = 30px, start at 21 - 15 = 6
-        DrawText(canvas, font_number, 6, 60, green, nullptr, overs_val, 0);
+        DrawText(canvas, font_number, 6, 46, green, nullptr, overs_val, 0);
 
-        // Runs (3-digit, yellow): centred on middle panel, bottom of panel
-        // texgyre-27: ~15px per digit, 3 digits = 45px, centre at 96, start at 74
-        DrawText(canvas, font_number, 74, 62, yellow, nullptr, runs_val, 0);
+        // Runs (3-digit, yellow): centred on middle panel
+        // dejavu-bold-46: 28px per digit, 3 digits = 84px, centre at 96, start at 54
+        DrawText(canvas, font_runs_num, 54, 58, yellow, nullptr, runs_val, 0);
 
         // Wkts (2-digit, orange): centred under WKTS at x~171
-        // texgyre-27: ~15px per digit, 2 digits = 30px, start at 171 - 15 = 156
-        DrawText(canvas, font_number, 156, 60, orange, nullptr, wkts_val, 0);
+        DrawText(canvas, font_number, 156, 46, orange, nullptr, wkts_val, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
