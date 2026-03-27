@@ -68,46 +68,23 @@ int main(int argc, char *argv[]) {
            canvas_w, canvas_h);
 
     Color white(255, 255, 255);
-    Color blue(0, 100, 255);
-
-    // Each half is 96px wide (1.5 panels)
-    // BAT 1 centre: 1/3 of left half = 96/3 = 32
-    // BAT 2 centre: right half start (96) + 2/3 of 96 = 96 + 64 = 160
+    Color yellow(255, 255, 0);
 
     // Example values
-    const char *bat1_label = "BAT 1";
-    const char *bat1_name  = "ARUN*";
-    const char *bat1_score = "47";
-    const char *bat2_label = "BAT 2";
-    const char *bat2_name  = "JAKE";
-    const char *bat2_score = "12";
+    const char *last_inn_score = "137 / 11";
 
     while (!interrupt_received) {
         canvas->Fill(0, 0, 0);
 
-        // --- BAT 1 (left half, centred at x=32) ---
+        // --- LAST INNINGS (centred across full 192px canvas) ---
 
-        // Label: "BAT 1" = 5*7 = 35px, start at 32 - 17 = 15
-        DrawText(canvas, font_label, 15, 12, white, nullptr, bat1_label, 0);
+        // Label: "LAST INNINGS" = 12*7 = 84px, centre at 96, start at 96 - 42 = 54
+        DrawText(canvas, font_label, 54, 12, white, nullptr, "LAST INNINGS", 0);
 
-        // Name: "ARUN*" = 5*7 = 35px, start at 32 - 17 = 15
-        DrawText(canvas, font_label, 15, 25, blue, nullptr, bat1_name, 0);
-
-        // Score: 2 digits, 25px each = 50px, start at 32 - 25 = 7
-        int b1_width = strlen(bat1_score) * 25;
-        DrawText(canvas, font_number, 32 - b1_width / 2, 60, white, nullptr, bat1_score, 0);
-
-        // --- BAT 2 (right half, centred at x=160) ---
-
-        // Label: "BAT 2" = 5*7 = 35px, start at 160 - 17 = 143
-        DrawText(canvas, font_label, 143, 12, white, nullptr, bat2_label, 0);
-
-        // Name: "JAKE" = 4*7 = 28px, start at 160 - 14 = 146
-        DrawText(canvas, font_label, 146, 25, blue, nullptr, bat2_name, 0);
-
-        // Score: 2 digits, 25px each = 50px, start at 160 - 25 = 135
-        int b2_width = strlen(bat2_score) * 25;
-        DrawText(canvas, font_number, 160 - b2_width / 2, 60, white, nullptr, bat2_score, 0);
+        // Score: "137 / 11" = 8 chars * 7 = 56px in 7x13B
+        // Use font_label for the score too since it includes /
+        // Centre at 96, start at 96 - 28 = 68
+        DrawText(canvas, font_label, 68, 28, yellow, nullptr, last_inn_score, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
