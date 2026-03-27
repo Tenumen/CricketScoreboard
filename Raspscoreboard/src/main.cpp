@@ -87,8 +87,8 @@ int main(int argc, char *argv[]) {
         // Total: 75 + 20 + 50 = 145px. Centre at 96: start at 96 - 72 = 24
         // ~24px margin each side (half of previous ~48px)
         DrawText(canvas, font_number, 13, 60, yellow, nullptr, last_inn_runs, 0);
-        DrawText(canvas, font_label, 91, 48, yellow, nullptr, "/", 0);
-        DrawText(canvas, font_number, 100, 60, yellow, nullptr, last_inn_wkts, 0);
+        DrawText(canvas, font_label, 96, 48, yellow, nullptr, "/", 0);
+        DrawText(canvas, font_number, 110, 60, yellow, nullptr, last_inn_wkts, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
