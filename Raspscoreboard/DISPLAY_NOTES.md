@@ -53,3 +53,34 @@ sudo led-image-viewer \
   --led-pwm-bits=7 --led-slowdown-gpio=4 \
   -w3600 display_full.png
 ```
+
+---
+
+## Row 2 — Scores (OVERS / RUNS / WKTS)
+
+Rendered in C++ (`src/main.cpp`) using BDF fonts.
+
+### Labels (top of panel, tops aligned at y≈1)
+
+| Label | Font | Width | Colour | x | y (baseline) |
+|-------|------|-------|--------|---|--------------|
+| OVERS | 7x13B.bdf | 5×7 = 35px | white | 4 | 12 |
+| RUNS | 10x20.bdf | 4×10 = 40px | white | 76 | 17 |
+| WKTS | 7x13B.bdf | 4×7 = 28px | white | 157 | 12 |
+
+### Numbers (below labels)
+
+| Value | Font | Digit width | Colour | x | y (baseline) |
+|-------|------|-------------|--------|---|--------------|
+| Overs (2-digit) | texgyre-27.bdf | ~15px/digit | green | 6 | 46 |
+| Runs (3-digit) | dejavu-mono-bold-46.bdf | ~28px/digit (84px total) | yellow | 54 | 58 |
+| Wkts (1-2 digit) | texgyre-27.bdf | ~15px/digit | orange | auto-centred at x=171 | 46 |
+
+### Notes
+
+- RUNS number uses a custom BDF font generated from DejaVu Sans Mono Bold at 46pt via `otf2bdf`
+  - File: `fonts/dejavu-mono-bold-46.bdf` (on Pi only, not in git)
+  - Generated with: `otf2bdf -p 46 -r 72 /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf -o fonts/dejavu-mono-bold-46.bdf`
+- RUNS number can spread a few pixels into the left and right panels
+- WKTS number auto-centres based on digit count (no leading zero for single digits)
+- OVERS label positioned at 1/3 of left panel, WKTS at 2/3 of right panel
