@@ -50,20 +50,16 @@ int main(int argc, char *argv[]) {
     FrameCanvas *canvas = matrix->CreateFrameCanvas();
 
     // Load fonts for text rendering
-    rgb_matrix::Font font_small, font_med, font_large;
+    rgb_matrix::Font font_9x15, font_7x14;
     const char *base = "lib/rpi-rgb-led-matrix/fonts/";
     char path[256];
 
-    snprintf(path, sizeof(path), "%s4x6.bdf", base);
-    if (!font_small.LoadFont(path))
+    snprintf(path, sizeof(path), "%s9x15B.bdf", base);
+    if (!font_9x15.LoadFont(path))
         fprintf(stderr, "Warning: could not load font '%s'\n", path);
 
-    snprintf(path, sizeof(path), "%s6x13.bdf", base);
-    if (!font_med.LoadFont(path))
-        fprintf(stderr, "Warning: could not load font '%s'\n", path);
-
-    snprintf(path, sizeof(path), "%s7x13.bdf", base);
-    if (!font_large.LoadFont(path))
+    snprintf(path, sizeof(path), "%s7x14B.bdf", base);
+    if (!font_7x14.LoadFont(path))
         fprintf(stderr, "Warning: could not load font '%s'\n", path);
 
     int canvas_w = matrix->width();
@@ -77,17 +73,18 @@ int main(int argc, char *argv[]) {
     while (!interrupt_received) {
         canvas->Fill(0, 0, 0);
 
-        // Left panel (x 0-63): ASTON ON TRENT / C. C.
-        // 4x6 font: "ASTON ON TRENT" = 14 chars * 4px = 56px
-        DrawText(canvas, font_small, 4, 25, white, nullptr, "ASTON ON TRENT", 0);
-        // 6x13 font for "C. C." = 5 chars * 6px = 30px
-        DrawText(canvas, font_med, 17, 42, yellow, nullptr, "C. C.", 0);
+        // Left panel (x 0-63): ASTON / ON / TRENT / C. C.
+        // 9x15B font: 5 chars * 9px = 45px wide, 4 lines * 15px = 60px tall
+        int lx = 10;  // centre 45px in 64px: (64-45)/2 ≈ 10
+        DrawText(canvas, font_9x15, lx, 15, white, nullptr, "ASTON", 0);
+        DrawText(canvas, font_9x15, lx + 14, 30, white, nullptr, "ON", 0);
+        DrawText(canvas, font_9x15, lx, 45, white, nullptr, "TRENT", 0);
+        DrawText(canvas, font_9x15, lx, 60, yellow, nullptr, "C. C.", 0);
 
         // Right panel (x 128-191): MELBOURNE / C. C.
-        // 7x13 font: "MELBOURNE" = 9 chars * 7px = 63px
-        DrawText(canvas, font_large, 129, 25, white, nullptr, "MELBOURNE", 0);
-        // 6x13 font for "C. C."
-        DrawText(canvas, font_med, 145, 42, yellow, nullptr, "C. C.", 0);
+        // 7x14B font: 9 chars * 7px = 63px
+        DrawText(canvas, font_7x14, 129, 28, white, nullptr, "MELBOURNE", 0);
+        DrawText(canvas, font_9x15, 138, 46, yellow, nullptr, "C. C.", 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
