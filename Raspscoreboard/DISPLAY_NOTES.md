@@ -95,3 +95,39 @@ Uses dejavu-mono-bold-42 for OVERS/WKTS — more readable but cramped on 3 panel
 - WKTS number auto-centres based on digit count (no leading zero for single digits)
 - OVERS label positioned at 1/3 of left panel, WKTS at 2/3 of right panel
 - The larger OVERS/WKTS numbers (42pt) are cramped at 3×64px — consider 4 panels wide for this row
+
+---
+
+## Row 3 — Batters (BAT 1 / BAT 2)
+
+Rendered in C++ (`src/main.cpp`) using BDF fonts. Canvas split into two halves of 96px (1.5 panels) each.
+
+- Left half: x 0–95, centred at x=32 (1/3 of left half)
+- Right half: x 96–191, centred at x=160 (2/3 of right half)
+
+### Labels
+
+| Element | Font | Width | Colour | x | y (baseline) |
+|---------|------|-------|--------|---|--------------|
+| BAT 1 | 7x13B.bdf | 5×7 = 35px | white | 15 | 12 |
+| BAT 2 | 7x13B.bdf | 5×7 = 35px | white | 143 | 12 |
+
+### Batter Names
+
+| Element | Font | Colour | x | y (baseline) |
+|---------|------|--------|---|--------------|
+| ARUN* (bat 1) | 7x13B.bdf | blue (0,100,255) | 15 | 25 |
+| JAKE (bat 2) | 7x13B.bdf | blue (0,100,255) | 146 | 25 |
+
+### Scores
+
+| Element | Font | Digit width | Colour | x | y (baseline) |
+|---------|------|-------------|--------|---|--------------|
+| Bat 1 score (2-digit) | dejavu-mono-bold-42.bdf | ~25px/digit | white | auto-centred at x=32 | 60 |
+| Bat 2 score (2-digit) | dejavu-mono-bold-42.bdf | ~25px/digit | white | auto-centred at x=160 | 60 |
+
+### Notes
+
+- * after batter name indicates striker
+- Scores auto-centre based on digit count
+- Batter names centred manually (adjust x based on name length for production)
