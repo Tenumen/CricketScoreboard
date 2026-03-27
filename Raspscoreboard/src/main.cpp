@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
     matrix_options.hardware_mapping = "regular";  // Electrodragon board = "regular"
     matrix_options.rows = 64;           // Panel height in pixels
     matrix_options.cols = 64;           // Panel width in pixels
-    matrix_options.chain_length = 2;    // Two panels daisy-chained
+    matrix_options.chain_length = 3;    // Three panels daisy-chained
     matrix_options.parallel = 1;        // Single chain for initial test
     matrix_options.brightness = 50;     // 1-100 percent
     matrix_options.pwm_bits = 7;        // Reduced from 11 for less flicker
@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Warning: could not load font '%s'. Text will not render.\n", font_path);
     }
 
-    int canvas_w = matrix->width();   // 128 for 2 chained 64x64
+    int canvas_w = matrix->width();   // 192 for 3 chained 64x64
     int canvas_h = matrix->height();  // 64
     printf("Test pattern running on %dx%d canvas. Press Ctrl+C to exit.\n",
            canvas_w, canvas_h);
@@ -67,13 +67,19 @@ int main(int argc, char *argv[]) {
     Color blue(0, 0, 255);
     Color yellow(255, 255, 0);
     Color cyan(0, 200, 200);
+    Color magenta(200, 0, 200);
+    Color grey(100, 100, 100);
+
+    // Panel colours for identification
+    Color panel_colors[3] = { red, green, blue };
+    const char *panel_names[3] = { "PANEL 1", "PANEL 2", "PANEL 3" };
 
     while (!interrupt_received) {
         canvas->Fill(0, 0, 0);  // Clear to black
 
         // -----------------------------------------------------------------
-        // Test pattern: outer border, per-panel borders, corner markers,
-        // panel numbers, centre crosshair
+        // Test pattern: outer border, per-panel borders and labels,
+        // corner markers, canvas dimensions
         // -----------------------------------------------------------------
 
         // Outer border (full canvas)
@@ -86,36 +92,51 @@ int main(int argc, char *argv[]) {
             canvas->SetPixel(canvas_w - 1, y, 255, 255, 255);
         }
 
-        // Per-panel vertical divider
-        for (int y = 0; y < canvas_h; y++) {
-            canvas->SetPixel(63, y, 100, 100, 100);
-            canvas->SetPixel(64, y, 100, 100, 100);
+        // Per-panel dividers and labels
+        for (int p = 0; p < 3; p++) {
+            int x_off = p * 64;
+
+            // Vertical divider at panel boundary (except left edge of panel 0)
+            if (p > 0) {
+                for (int y = 0; y < canvas_h; y++) {
+                    canvas->SetPixel(x_off - 1, y, 100, 100, 100);
+                    canvas->SetPixel(x_off, y, 100, 100, 100);
+                }
+            }
+
+            // Panel number label (centred in each panel)
+            DrawText(canvas, font, x_off + 8, 35, panel_colors[p], nullptr, panel_names[p], 0);
+
+            // Coloured bar along top of each panel (2px high, inset)
+            for (int x = x_off + 2; x < x_off + 62; x++) {
+                canvas->SetPixel(x, 2, panel_colors[p].r, panel_colors[p].g, panel_colors[p].b);
+                canvas->SetPixel(x, 3, panel_colors[p].r, panel_colors[p].g, panel_colors[p].b);
+            }
+
+            // Coloured bar along bottom of each panel
+            for (int x = x_off + 2; x < x_off + 62; x++) {
+                canvas->SetPixel(x, 60, panel_colors[p].r, panel_colors[p].g, panel_colors[p].b);
+                canvas->SetPixel(x, 61, panel_colors[p].r, panel_colors[p].g, panel_colors[p].b);
+            }
         }
 
         // Corner markers (4x4 blocks)
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
-                canvas->SetPixel(1 + i, 1 + j, 255, 0, 0);                    // TL: RED
-                canvas->SetPixel(canvas_w - 5 + i, 1 + j, 0, 200, 0);         // TR: GREEN
-                canvas->SetPixel(1 + i, canvas_h - 5 + j, 0, 0, 255);         // BL: BLUE
-                canvas->SetPixel(canvas_w - 5 + i, canvas_h - 5 + j, 255, 255, 0); // BR: YELLOW
+                canvas->SetPixel(1 + i, 5 + j, 255, 0, 0);
+                canvas->SetPixel(canvas_w - 5 + i, 5 + j, 0, 200, 0);
+                canvas->SetPixel(1 + i, canvas_h - 9 + j, 0, 0, 255);
+                canvas->SetPixel(canvas_w - 5 + i, canvas_h - 9 + j, 255, 255, 0);
             }
         }
 
-        // Corner labels
-        DrawText(canvas, font, 6, 12, red, nullptr, "TL", 0);
-        DrawText(canvas, font, canvas_w - 20, 12, green, nullptr, "TR", 0);
-        DrawText(canvas, font, 6, canvas_h - 2, blue, nullptr, "BL", 0);
-        DrawText(canvas, font, canvas_w - 20, canvas_h - 2, yellow, nullptr, "BR", 0);
-
-        // Panel number labels
-        DrawText(canvas, font, 12, 35, white, nullptr, "PANEL 1", 0);
-        DrawText(canvas, font, 84, 35, cyan, nullptr, "PANEL 2", 0);
-
-        // Canvas dimensions
+        // Canvas dimensions centred at bottom
         char dims[32];
         snprintf(dims, sizeof(dims), "%dx%d", canvas_w, canvas_h);
-        DrawText(canvas, font, 44, 55, white, nullptr, dims, 0);
+        DrawText(canvas, font, 76, 55, white, nullptr, dims, 0);
+
+        // Physical wiring hint
+        DrawText(canvas, font, 4, 20, grey, nullptr, "Pi->", 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
