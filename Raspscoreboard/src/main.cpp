@@ -82,12 +82,13 @@ int main(int argc, char *argv[]) {
         // Label: "LAST INNINGS" = 12*7 = 84px, centre at 96, start at 96 - 42 = 54
         DrawText(canvas, font_label, 54, 12, white, nullptr, "LAST INNINGS", 0);
 
-        // Score: render "137", "/", "11" separately with tighter spacing
+        // Score: render "137", "/", "11" separately
         // dejavu-bold-42: ~25px per digit
-        // Total: 75 + 15 + 50 = 140px. Centre at 96: start at 96 - 70 = 26
-        DrawText(canvas, font_number, 26, 60, yellow, nullptr, last_inn_runs, 0);
-        DrawText(canvas, font_label, 103, 48, yellow, nullptr, "/", 0);
-        DrawText(canvas, font_number, 112, 60, yellow, nullptr, last_inn_wkts, 0);
+        // Total: 75 + 20 + 50 = 145px. Centre at 96: start at 96 - 72 = 24
+        // ~24px margin each side (half of previous ~48px)
+        DrawText(canvas, font_number, 13, 60, yellow, nullptr, last_inn_runs, 0);
+        DrawText(canvas, font_label, 91, 48, yellow, nullptr, "/", 0);
+        DrawText(canvas, font_number, 100, 60, yellow, nullptr, last_inn_wkts, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
