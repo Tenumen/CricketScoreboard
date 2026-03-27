@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
     // Example score values
     const char *overs_val = "24";
     const char *runs_val = "187";
-    const char *wkts_val = "04";
+    const char *wkts_val = "4";
 
     while (!interrupt_received) {
         canvas->Fill(0, 0, 0);
@@ -115,8 +115,10 @@ int main(int argc, char *argv[]) {
         // dejavu-bold-46: 28px per digit, 3 digits = 84px, centre at 96, start at 54
         DrawText(canvas, font_runs_num, 54, 58, yellow, nullptr, runs_val, 0);
 
-        // Wkts (2-digit, orange): centred under WKTS at x~171
-        DrawText(canvas, font_number, 156, 46, orange, nullptr, wkts_val, 0);
+        // Wkts (orange): centred under WKTS at x~171
+        // texgyre-27: ~15px per digit, centre based on digit count
+        int wkts_width = strlen(wkts_val) * 15;
+        DrawText(canvas, font_number, 171 - wkts_width / 2, 46, orange, nullptr, wkts_val, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
