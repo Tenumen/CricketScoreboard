@@ -53,71 +53,61 @@ int main(int argc, char *argv[]) {
     const char *base = "lib/rpi-rgb-led-matrix/fonts/";
     char path[256];
 
-    rgb_matrix::Font font_label;      // OVERS, WKTS labels
+    rgb_matrix::Font font_label;      // Labels (7x13B)
     snprintf(path, sizeof(path), "%s7x13B.bdf", base);
     if (!font_label.LoadFont(path))
         fprintf(stderr, "Warning: could not load font '%s'\n", path);
 
-    rgb_matrix::Font font_runs_label; // RUNS label (bigger)
-    snprintf(path, sizeof(path), "%s10x20.bdf", base);
-    if (!font_runs_label.LoadFont(path))
-        fprintf(stderr, "Warning: could not load font '%s'\n", path);
-
-    rgb_matrix::Font font_number;     // OVERS/WKTS numbers
+    rgb_matrix::Font font_number;     // Score numbers (dejavu-bold-42)
     if (!font_number.LoadFont("fonts/dejavu-mono-bold-42.bdf"))
         fprintf(stderr, "Warning: could not load number font\n");
 
-    rgb_matrix::Font font_runs_num;   // RUNS number (large bold)
-    if (!font_runs_num.LoadFont("fonts/dejavu-mono-bold-46.bdf"))
-        fprintf(stderr, "Warning: could not load runs number font\n");
-
     int canvas_w = matrix->width();
     int canvas_h = matrix->height();
-    printf("Scoreboard row 2 test on %dx%d canvas. Press Ctrl+C to exit.\n",
+    printf("Scoreboard row 3 test on %dx%d canvas. Press Ctrl+C to exit.\n",
            canvas_w, canvas_h);
 
     Color white(255, 255, 255);
-    Color green(0, 200, 0);
-    Color yellow(255, 255, 0);
-    Color orange(255, 165, 0);
+    Color blue(0, 100, 255);
 
-    // Example score values
-    const char *overs_val = "24";
-    const char *runs_val = "187";
-    const char *wkts_val = "4";
+    // Each half is 96px wide (1.5 panels)
+    // BAT 1 centre: 1/3 of left half = 96/3 = 32
+    // BAT 2 centre: right half start (96) + 2/3 of 96 = 96 + 64 = 160
+
+    // Example values
+    const char *bat1_label = "BAT 1";
+    const char *bat1_name  = "ARUN*";
+    const char *bat1_score = "47";
+    const char *bat2_label = "BAT 2";
+    const char *bat2_name  = "JAKE";
+    const char *bat2_score = "12";
 
     while (!interrupt_received) {
         canvas->Fill(0, 0, 0);
 
-        // --- Labels at top (aligned tops) ---
-        // 7x13B ascent ~11, so top = y - 11. For top=1: y=12
-        // 10x20 ascent ~16, so top = y - 16. For top=1: y=17
+        // --- BAT 1 (left half, centred at x=32) ---
 
-        // OVERS label: 1/3 into left panel
-        DrawText(canvas, font_label, 4, 12, white, nullptr, "OVERS", 0);
+        // Label: "BAT 1" = 5*7 = 35px, start at 32 - 17 = 15
+        DrawText(canvas, font_label, 15, 12, white, nullptr, bat1_label, 0);
 
-        // RUNS label: centred on middle panel
-        DrawText(canvas, font_runs_label, 76, 17, white, nullptr, "RUNS", 0);
+        // Name: "ARUN*" = 5*7 = 35px, start at 32 - 17 = 15
+        DrawText(canvas, font_label, 15, 28, blue, nullptr, bat1_name, 0);
 
-        // WKTS label: 2/3 into right panel
-        DrawText(canvas, font_label, 157, 12, white, nullptr, "WKTS", 0);
+        // Score: 2 digits, 25px each = 50px, start at 32 - 25 = 7
+        int b1_width = strlen(bat1_score) * 25;
+        DrawText(canvas, font_number, 32 - b1_width / 2, 60, white, nullptr, bat1_score, 0);
 
-        // --- Numbers (tops aligned) ---
-        // dejavu-bold-42 ascent ~31, for top=26: y=57
-        // dejavu-bold-46 ascent ~34, for top=26: y=60
+        // --- BAT 2 (right half, centred at x=160) ---
 
-        // Overs (2-digit, green): centred under OVERS at x~21
-        // dejavu-bold-42: 25px per digit, 2 digits = 50px, start at 21 - 25 = -4
-        DrawText(canvas, font_number, -4, 57, green, nullptr, overs_val, 0);
+        // Label: "BAT 2" = 5*7 = 35px, start at 160 - 17 = 143
+        DrawText(canvas, font_label, 143, 12, white, nullptr, bat2_label, 0);
 
-        // Runs (3-digit, yellow): centred on middle panel
-        // dejavu-bold-46: 28px per digit, 3 digits = 84px, centre at 96, start at 54
-        DrawText(canvas, font_runs_num, 54, 60, yellow, nullptr, runs_val, 0);
+        // Name: "JAKE" = 4*7 = 28px, start at 160 - 14 = 146
+        DrawText(canvas, font_label, 146, 28, blue, nullptr, bat2_name, 0);
 
-        // Wkts (orange): centred under WKTS at x~171
-        // dejavu-bold-42: 25px per digit, centre based on digit count
-        int wkts_width = strlen(wkts_val) * 25;
-        DrawText(canvas, font_number, 171 - wkts_width / 2, 57, orange, nullptr, wkts_val, 0);
+        // Score: 2 digits, 25px each = 50px, start at 160 - 25 = 135
+        int b2_width = strlen(bat2_score) * 25;
+        DrawText(canvas, font_number, 160 - b2_width / 2, 60, white, nullptr, bat2_score, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
