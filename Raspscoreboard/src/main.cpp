@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
         DrawText(canvas, font_label, 15, 12, white, nullptr, bat1_label, 0);
 
         // Name: "ARUN*" = 5*7 = 35px, start at 32 - 17 = 15
-        DrawText(canvas, font_label, 15, 28, blue, nullptr, bat1_name, 0);
+        DrawText(canvas, font_label, 15, 25, blue, nullptr, bat1_name, 0);
 
         // Score: 2 digits, 25px each = 50px, start at 32 - 25 = 7
         int b1_width = strlen(bat1_score) * 25;
@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
         DrawText(canvas, font_label, 143, 12, white, nullptr, bat2_label, 0);
 
         // Name: "JAKE" = 4*7 = 28px, start at 160 - 14 = 146
-        DrawText(canvas, font_label, 146, 28, blue, nullptr, bat2_name, 0);
+        DrawText(canvas, font_label, 146, 25, blue, nullptr, bat2_name, 0);
 
         // Score: 2 digits, 25px each = 50px, start at 160 - 25 = 135
         int b2_width = strlen(bat2_score) * 25;
