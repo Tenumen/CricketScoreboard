@@ -131,3 +131,30 @@ Rendered in C++ (`src/main.cpp`) using BDF fonts. Canvas split into two halves o
 - * after batter name indicates striker
 - Scores auto-centre based on digit count
 - Batter names centred manually (adjust x based on name length for production)
+
+---
+
+## Row 4 — Last Innings
+
+Rendered in C++ (`src/main.cpp`) using BDF fonts. All content centred across full 192px canvas.
+
+### Label
+
+| Element | Font | Width | Colour | x | y (baseline) |
+|---------|------|-------|--------|---|--------------|
+| LAST INNINGS | 7x13B.bdf | 12×7 = 84px | white | 54 | 12 |
+
+### Score
+
+Rendered as three separate elements (runs, slash, wickets) for spacing control.
+
+| Element | Font | Colour | x | y (baseline) |
+|---------|------|--------|---|--------------|
+| Runs (3-digit, e.g. "137") | dejavu-mono-bold-42.bdf | yellow | 13 | 60 |
+| "/" separator | 7x13B.bdf | yellow | 96 | 48 |
+| Wickets (2-digit, e.g. "11") | dejavu-mono-bold-42.bdf | yellow | 110 | 60 |
+
+### Notes
+
+- Numbers and slash rendered separately to allow fine-tuned spacing
+- Left margin ~13px, right margin ~32px (visually balanced due to "11" being narrower than "137")
