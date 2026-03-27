@@ -81,10 +81,11 @@ int main(int argc, char *argv[]) {
         // Label: "LAST INNINGS" = 12*7 = 84px, centre at 96, start at 96 - 42 = 54
         DrawText(canvas, font_label, 54, 12, white, nullptr, "LAST INNINGS", 0);
 
-        // Score: "137 / 11" = 8 chars * 7 = 56px in 7x13B
-        // Use font_label for the score too since it includes /
-        // Centre at 96, start at 96 - 28 = 68
-        DrawText(canvas, font_label, 68, 28, yellow, nullptr, last_inn_score, 0);
+        // Score: "137 / 11" = 8 chars * 25px = 200px in dejavu-bold-42
+        // Too wide — split into parts: "137" left of centre, "/" in between, "11" right
+        // dejavu-bold-42: ~25px per char. "137" = 75px, " / " = 75px, "11" = 50px = 200px total
+        // Instead render as one string, centre at 96: 200/2 = 100, start at 96 - 100 = -4
+        DrawText(canvas, font_number, -4, 60, yellow, nullptr, last_inn_score, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
