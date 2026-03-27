@@ -76,11 +76,22 @@ Rendered in C++ (`src/main.cpp`) using BDF fonts.
 | Runs (3-digit) | dejavu-mono-bold-46.bdf | ~28px/digit (84px total) | yellow | 54 | 58 |
 | Wkts (1-2 digit) | texgyre-27.bdf | ~15px/digit | orange | auto-centred at x=171 | 46 |
 
+### Numbers — larger variant (current)
+
+Uses dejavu-mono-bold-42 for OVERS/WKTS — more readable but cramped on 3 panels. May suit a 4-panel-wide layout better.
+
+| Value | Font | Digit width | Colour | x | y (baseline) |
+|-------|------|-------------|--------|---|--------------|
+| Overs (2-digit) | dejavu-mono-bold-42.bdf | ~25px/digit (50px total) | green | -4 | 57 |
+| Runs (3-digit) | dejavu-mono-bold-46.bdf | ~28px/digit (84px total) | yellow | 54 | 60 |
+| Wkts (1-2 digit) | dejavu-mono-bold-42.bdf | ~25px/digit | orange | auto-centred at x=171 | 57 |
+
 ### Notes
 
-- RUNS number uses a custom BDF font generated from DejaVu Sans Mono Bold at 46pt via `otf2bdf`
-  - File: `fonts/dejavu-mono-bold-46.bdf` (on Pi only, not in git)
-  - Generated with: `otf2bdf -p 46 -r 72 /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf -o fonts/dejavu-mono-bold-46.bdf`
+- Custom BDF fonts generated from DejaVu Sans Mono Bold via `otf2bdf` (on Pi only, not in git):
+  - `fonts/dejavu-mono-bold-42.bdf` — `otf2bdf -p 42 -r 72 /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf -o fonts/dejavu-mono-bold-42.bdf`
+  - `fonts/dejavu-mono-bold-46.bdf` — `otf2bdf -p 46 -r 72 /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf -o fonts/dejavu-mono-bold-46.bdf`
 - RUNS number can spread a few pixels into the left and right panels
 - WKTS number auto-centres based on digit count (no leading zero for single digits)
 - OVERS label positioned at 1/3 of left panel, WKTS at 2/3 of right panel
+- The larger OVERS/WKTS numbers (42pt) are cramped at 3×64px — consider 4 panels wide for this row
