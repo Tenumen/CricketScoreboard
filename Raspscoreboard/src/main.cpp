@@ -64,9 +64,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Warning: could not load font '%s'\n", path);
 
     rgb_matrix::Font font_number;     // OVERS/WKTS numbers
-    snprintf(path, sizeof(path), "%stexgyre-27.bdf", base);
-    if (!font_number.LoadFont(path))
-        fprintf(stderr, "Warning: could not load font '%s'\n", path);
+    if (!font_number.LoadFont("fonts/dejavu-mono-bold-42.bdf"))
+        fprintf(stderr, "Warning: could not load number font\n");
 
     rgb_matrix::Font font_runs_num;   // RUNS number (large bold)
     if (!font_runs_num.LoadFont("fonts/dejavu-mono-bold-46.bdf"))
@@ -104,21 +103,21 @@ int main(int argc, char *argv[]) {
         DrawText(canvas, font_label, 157, 12, white, nullptr, "WKTS", 0);
 
         // --- Numbers (tops aligned) ---
-        // texgyre-27 ascent ~22, for top=24: y=46
-        // dejavu-bold-46 ascent ~34, for top=24: y=58
+        // dejavu-bold-42 ascent ~31, for top=26: y=57
+        // dejavu-bold-46 ascent ~34, for top=26: y=60
 
         // Overs (2-digit, green): centred under OVERS at x~21
-        // texgyre-27: ~15px per digit, 2 digits = 30px, start at 21 - 15 = 6
-        DrawText(canvas, font_number, 6, 46, green, nullptr, overs_val, 0);
+        // dejavu-bold-42: 25px per digit, 2 digits = 50px, start at 21 - 25 = -4
+        DrawText(canvas, font_number, -4, 57, green, nullptr, overs_val, 0);
 
         // Runs (3-digit, yellow): centred on middle panel
         // dejavu-bold-46: 28px per digit, 3 digits = 84px, centre at 96, start at 54
-        DrawText(canvas, font_runs_num, 54, 58, yellow, nullptr, runs_val, 0);
+        DrawText(canvas, font_runs_num, 54, 60, yellow, nullptr, runs_val, 0);
 
         // Wkts (orange): centred under WKTS at x~171
-        // texgyre-27: ~15px per digit, centre based on digit count
-        int wkts_width = strlen(wkts_val) * 15;
-        DrawText(canvas, font_number, 171 - wkts_width / 2, 46, orange, nullptr, wkts_val, 0);
+        // dejavu-bold-42: 25px per digit, centre based on digit count
+        int wkts_width = strlen(wkts_val) * 25;
+        DrawText(canvas, font_number, 171 - wkts_width / 2, 57, orange, nullptr, wkts_val, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
         usleep(500 * 1000);
