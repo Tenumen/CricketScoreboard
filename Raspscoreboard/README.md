@@ -1,5 +1,9 @@
 # Raspscoreboard
 
+> **DEPRECATED — kept for reference and 3-panel test rigs.** Active code for the 24-panel
+> wall lives in [`../Raspscoreboard24/`](../Raspscoreboard24/). The two forks share the
+> hzeller submodule via a symlink (`Raspscoreboard24/lib/rpi-rgb-led-matrix` → here).
+
 HUB75 LED panel scoreboard running on a Raspberry Pi 3B, using the
 [hzeller/rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix) library.
 
