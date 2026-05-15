@@ -17,17 +17,17 @@ void GridCanvas::SetPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
     if (x < 0 || x >= kLogicalWidth || y < 0 || y >= kLogicalHeight) return;
 
     // panel_col_lr: 0 is the leftmost panel column on screen (front view).
-    // panel_row_tb: 0 is the top row of panels on screen (row A = bottom of wall).
+    // panel_row_tb: 0 is the top row of panels on screen.
     const int panel_col_lr = x / kPanelPx;
     const int panel_row_tb = y / kPanelPx;
     const int lx = x % kPanelPx;
     const int ly = y % kPanelPx;
 
-    // Column 1 is on the right of the wall, column 6 on the left.
-    const int grid_col_idx = (kGridCols - 1) - panel_col_lr;  // 0..5 -> col1..col6
-    // Row A (index 0) is physically at the bottom of the wall; y=0..63 maps to row A,
-    // y=192..255 maps to row D (top of wall). Direct mapping: no flip needed.
-    const int grid_row_idx = panel_row_tb;
+    // Column 1 is on the LEFT of the wall (audience view), column 6 on the right.
+    // The chain enters from the audience-left side: bottom: B1, A1, A2, ..., A6, B6.
+    // So low-x in the logical canvas maps to low-numbered cols (audience-left).
+    const int grid_col_idx = panel_col_lr;            // 0..5 -> col1..col6 (left to right)
+    const int grid_row_idx = panel_row_tb;            // 0..3 -> rowA..rowD (top to bottom)
     const PanelPlacement &p = kPanelLayout[grid_row_idx][grid_col_idx];
 
     int out_x = lx;

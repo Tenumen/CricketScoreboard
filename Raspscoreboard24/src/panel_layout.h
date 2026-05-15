@@ -11,8 +11,10 @@
 namespace cricketboard {
 
 // Logical canvas (front-view): 6 panels wide x 4 panels tall = 384 x 256 px.
-// Row A is at the top, row D at the bottom. Column 1 is on the right, column 6
-// on the left, so within each row the panels read right-to-left in column order.
+// Row A is at the top, row D at the bottom. Column 1 is on the LEFT edge of the
+// wall (audience view), column 6 on the right — the chain enters from the
+// audience-left side, so within each row the panels read left-to-right in column
+// order (col1=A1, col2=A2, ...).
 constexpr int kPanelPx       = 64;
 constexpr int kGridCols      = 6;
 constexpr int kGridRows      = 4;

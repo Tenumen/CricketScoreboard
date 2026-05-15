@@ -16,7 +16,7 @@ SRCS    := $(wildcard $(SRCDIR)/*.cpp)
 OBJS    := $(SRCS:.cpp=.o)
 
 CXX      := g++
-CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -I$(RGB_INCDIR) -I$(SRCDIR)
+CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -I$(RGB_INCDIR) -I$(SRCDIR) -Ithird_party
 LDFLAGS  := -L$(RGB_LIBDIR) -lrgbmatrix -lrt -lm -lpthread
 
 .PHONY: all clean clean-all lib

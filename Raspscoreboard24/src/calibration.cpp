@@ -52,7 +52,7 @@ void DrawOrientationMark(rgb_matrix::Canvas *c, int px, int py) {
 void PaintPanel(GridCanvas *c,
                 const rgb_matrix::Font &font,
                 int grid_row_idx, int grid_col_one_based) {
-    const int panel_col_lr = kGridCols - grid_col_one_based;  // col 1 -> rightmost
+    const int panel_col_lr = grid_col_one_based - 1;  // col 1 -> leftmost
     const int px = panel_col_lr * kPanelPx;
     const int py = grid_row_idx * kPanelPx;
 
@@ -78,16 +78,49 @@ void RunCalibration(rgb_matrix::RGBMatrix *matrix,
     rgb_matrix::FrameCanvas *frame = matrix->CreateFrameCanvas();
     GridCanvas grid(frame);
 
+    if (mode == CalibrationMode::Quadrants) {
+        // Six 64x64 squares, each centred on a 4-panel junction. If column/row
+        // mapping is correct, each square is split into four 32x32 quadrants
+        // that meet cleanly at the junction. Any mirror/swap shows up as a
+        // square that looks "torn" or with quadrants in the wrong order.
+        struct QuadSquare {
+            int cx, cy;      // centre x,y on the logical canvas
+            uint8_t r, g, b; // colour
+        };
+        const QuadSquare squares[] = {
+            {  64,  64, 255,   0,   0 },   // A1/A2/B1/B2  — red
+            { 192,  64, 255, 165,   0 },   // A3/A4/B3/B4  — orange
+            { 320,  64, 255, 255,   0 },   // A5/A6/B5/B6  — yellow
+            {  64, 192,   0, 200,   0 },   // C1/C2/D1/D2  — green
+            { 192, 192,   0, 150, 255 },   // C3/C4/D3/D4  — blue
+            { 320, 192, 220,   0, 220 },   // C5/C6/D5/D6  — magenta
+        };
+        printf("Calibration: 6 junction squares. Ctrl+C to exit.\n");
+        grid.Fill(0, 0, 0);
+        for (const QuadSquare &s : squares) {
+            for (int dy = -32; dy < 32; ++dy)
+                for (int dx = -32; dx < 32; ++dx)
+                    grid.SetPixel(s.cx + dx, s.cy + dy, s.r, s.g, s.b);
+        }
+        matrix->SwapOnVSync(frame);
+        while (!*interrupt_flag) {
+            usleep(100 * 1000);
+        }
+        return;
+    }
+
     if (mode == CalibrationMode::AllAtOnce) {
         printf("Calibration: all panels labelled. Ctrl+C to exit.\n");
+        // Draw once. The library's refresh daemon keeps the display live; redrawing
+        // identical content per loop iteration caused a visible swap-glitch at the
+        // loop frequency, which looked like flicker.
+        grid.Fill(0, 0, 0);
+        for (int r = 0; r < kGridRows; ++r)
+            for (int c = 1; c <= kGridCols; ++c)
+                PaintPanel(&grid, label_font, r, c);
+        matrix->SwapOnVSync(frame);
         while (!*interrupt_flag) {
-            grid.Fill(0, 0, 0);
-            for (int r = 0; r < kGridRows; ++r)
-                for (int c = 1; c <= kGridCols; ++c)
-                    PaintPanel(&grid, label_font, r, c);
-            frame = matrix->SwapOnVSync(frame);
-            grid.set_backing(frame);
-            usleep(200 * 1000);
+            usleep(100 * 1000);
         }
         return;
     }
