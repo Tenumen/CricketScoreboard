@@ -1,8 +1,9 @@
 #include "calibration.h"
 #include "grid_canvas.h"
 #include "panel_layout.h"
+#include "render_backend/backend.h"
 
-#include "led-matrix.h"
+#include "canvas.h"
 #include "graphics.h"
 
 #include <unistd.h>
@@ -71,12 +72,11 @@ void PaintPanel(GridCanvas *c,
 
 }  // namespace
 
-void RunCalibration(rgb_matrix::RGBMatrix *matrix,
+void RunCalibration(IDisplay *display,
                     const rgb_matrix::Font &label_font,
                     CalibrationMode mode,
                     volatile bool *interrupt_flag) {
-    rgb_matrix::FrameCanvas *frame = matrix->CreateFrameCanvas();
-    GridCanvas grid(frame);
+    GridCanvas grid(display->current_back_buffer());
 
     if (mode == CalibrationMode::Quadrants) {
         // Six 64x64 squares, each centred on a 4-panel junction. If column/row
@@ -102,7 +102,8 @@ void RunCalibration(rgb_matrix::RGBMatrix *matrix,
                 for (int dx = -32; dx < 32; ++dx)
                     grid.SetPixel(s.cx + dx, s.cy + dy, s.r, s.g, s.b);
         }
-        matrix->SwapOnVSync(frame);
+        display->swap_on_vsync();
+        grid.set_backing(display->current_back_buffer());
         while (!*interrupt_flag) {
             usleep(100 * 1000);
         }
@@ -118,7 +119,8 @@ void RunCalibration(rgb_matrix::RGBMatrix *matrix,
         for (int r = 0; r < kGridRows; ++r)
             for (int c = 1; c <= kGridCols; ++c)
                 PaintPanel(&grid, label_font, r, c);
-        matrix->SwapOnVSync(frame);
+        display->swap_on_vsync();
+        grid.set_backing(display->current_back_buffer());
         while (!*interrupt_flag) {
             usleep(100 * 1000);
         }
@@ -131,8 +133,8 @@ void RunCalibration(rgb_matrix::RGBMatrix *matrix,
             for (int col = 1; col <= kGridCols && !*interrupt_flag; ++col) {
                 grid.Fill(0, 0, 0);
                 PaintPanel(&grid, label_font, r, col);
-                frame = matrix->SwapOnVSync(frame);
-                grid.set_backing(frame);
+                display->swap_on_vsync();
+                grid.set_backing(display->current_back_buffer());
                 usleep(kHoldMicros);
             }
         }

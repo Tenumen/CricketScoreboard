@@ -1,0 +1,7 @@
+config.json
+scoreboard24
+scoreboard24-sim
+src/*.o
+src/**/*.o
+build/
+

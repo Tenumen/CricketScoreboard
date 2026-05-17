@@ -1,0 +1,49 @@
+{
+  "match_details": [
+    {
+      "id": 9000006,
+      "status": "Result",
+      "last_updated": "2026-05-17 19:30:00",
+      "league_name": "Derbyshire County League",
+      "home_team_name": "Aston on Trent 1st XI",
+      "home_team_id": "10001",
+      "home_club_name": "Aston on Trent CC",
+      "home_club_id": "12345",
+      "away_team_name": "Melbourne 1st XI",
+      "away_team_id": "20001",
+      "away_club_name": "Melbourne CC",
+      "away_club_id": "67890",
+      "match_date": "17/05/2026",
+      "match_time": "13:00",
+      "no_of_overs": 40,
+      "result": "T",
+      "result_description": "TIED",
+      "innings": [
+        {
+          "team_batting_name": "Melbourne 1st XI",
+          "team_batting_id": "20001",
+          "innings_number": 1,
+          "total_extras": "15",
+          "runs": "275",
+          "wickets": "10",
+          "overs": "39.5",
+          "bat": [],
+          "fow": [],
+          "bowl": []
+        },
+        {
+          "team_batting_name": "Aston on Trent 1st XI",
+          "team_batting_id": "10001",
+          "innings_number": 2,
+          "total_extras": "11",
+          "runs": "275",
+          "wickets": "9",
+          "overs": "40.0",
+          "bat": [],
+          "fow": [],
+          "bowl": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+[Unit]
+Description=Aston on Trent VCC scoreboard24
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/tenumen/scoreboard24
+ExecStart=/home/tenumen/scoreboard24/scoreboard24
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+# KillMode=process: when systemd stops/restarts this service, only the main
+# scoreboard24 process gets SIGTERM. Any helper processes (e.g. the update
+# script spawned from the HTTP debug server) survive in their own process
+# tree and finish cleanly.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

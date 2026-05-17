@@ -1,0 +1,13 @@
+# Repo-root ignores. See Raspscoreboard24/.gitignore for build artefacts.
+
+# Per-user/project local files
+.claude/settings.local.json
+
+# Photos / scratch files
+Raspscoreboard/photo.jpg
+
+# Mock server runtime state
+mock_playcricket/state.json
+mock_playcricket/.venv/
+mock_playcricket/__pycache__/
+mock_playcricket/**/__pycache__/

@@ -1,11 +1,9 @@
 #include "grid_canvas.h"
 #include "panel_layout.h"
 
-#include "led-matrix.h"
-
 namespace cricketboard {
 
-GridCanvas::GridCanvas(rgb_matrix::FrameCanvas *backing) : backing_(backing) {}
+GridCanvas::GridCanvas(rgb_matrix::Canvas *backing) : backing_(backing) {}
 
 int GridCanvas::width()  const { return kLogicalWidth; }
 int GridCanvas::height() const { return kLogicalHeight; }

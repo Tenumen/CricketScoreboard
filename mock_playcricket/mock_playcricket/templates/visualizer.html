@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>mock Play-Cricket — visualizer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="visualizer">
+  <header>
+    <h1>mock Play-Cricket — scoreboard visualizer</h1>
+    <nav>
+      <a href="/">Scoring</a>
+      <a href="/visualizer" class="active">Visualizer</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="viz-toolbar">
+      <label>Zoom:
+        <select id="viz-zoom">
+          <option value="1">1×</option>
+          <option value="2" selected>2×</option>
+          <option value="3">3×</option>
+          <option value="4">4×</option>
+        </select>
+      </label>
+      <span id="viz-status">waiting for first frame…</span>
+    </section>
+
+    <div id="wall-wrapper">
+      <div id="wall">
+        <canvas id="wall-canvas" width="384" height="256"></canvas>
+        <div id="bezel-grid">
+          <!-- 24 transparent divs added by JS for panel boundaries -->
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="{{ url_for('static', filename='visualizer.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "api_token": "",
+  "club_site_id": 12345,
+  "poll_interval_seconds": 1,
+  "mock_mode": false,
+  "mock_data_path": "mock_data/mid_chase.json",
+
+  "api_base_url": "http://127.0.0.1:5050",
+  "sim_endpoint": "http://127.0.0.1:5050",
+  "sim_endpoint_send_on_change_only": true,
+
+  "debug_server_enabled": false,
+  "debug_server_port": 8080,
+  "debug_server_password": ""
+}

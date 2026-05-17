@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>mock Play-Cricket — scoring</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="scoring">
+  <header>
+    <h1>mock Play-Cricket</h1>
+    <nav>
+      <a href="/" class="active">Scoring</a>
+      <a href="/visualizer">Visualizer</a>
+    </nav>
+  </header>
+
+  <main id="root">
+    <section id="match-bar">
+      <select id="match-picker"></select>
+      <button id="new-match-btn">New match</button>
+      <button id="delete-match-btn" class="danger">Delete</button>
+      <span id="match-status"></span>
+    </section>
+
+    <section id="no-match" class="hidden">
+      <p>No match loaded. Click <strong>New match</strong> to create one.</p>
+    </section>
+
+    <section id="scorecard" class="hidden">
+      <h2 id="match-title"></h2>
+      <div id="scorecard-summary"></div>
+      <div id="target-line" class="hidden"></div>
+    </section>
+
+    <section id="lifecycle" class="hidden">
+      <button id="start-innings-btn" class="hidden">Start innings</button>
+      <button id="end-innings-btn" class="hidden">End innings</button>
+      <button id="end-match-btn" class="hidden">End match</button>
+    </section>
+
+    <section id="mode-toggle" class="hidden">
+      <label><input type="radio" name="mode" value="bbb" checked> Ball-by-ball</label>
+      <label><input type="radio" name="mode" value="edit"> Direct edit</label>
+    </section>
+
+    <section id="bbb-pane" class="hidden">
+      <div id="batters">
+        <div class="batter" id="striker-card">
+          <span class="role">On strike</span>
+          <span class="name"></span>
+          <span class="score"></span>
+        </div>
+        <div class="batter" id="non-striker-card">
+          <span class="role">Non-striker</span>
+          <span class="name"></span>
+          <span class="score"></span>
+        </div>
+        <button id="swap-strike-btn" title="Swap strike (no ball faced)">⇄</button>
+      </div>
+      <div id="bowler-card">
+        <span class="role">Bowler</span>
+        <span class="name"></span>
+        <span class="figs"></span>
+      </div>
+      <div id="recent-balls"></div>
+
+      <div id="run-buttons">
+        <button data-runs="0">0</button>
+        <button data-runs="1">1</button>
+        <button data-runs="2">2</button>
+        <button data-runs="3">3</button>
+        <button data-runs="4">4</button>
+        <button data-runs="6">6</button>
+      </div>
+      <div id="extras-buttons">
+        <button data-kind="wide">Wide</button>
+        <button data-kind="no_ball">No-ball</button>
+        <button data-kind="bye">Bye</button>
+        <button data-kind="leg_bye">Leg-bye</button>
+        <button data-kind="wicket" class="wicket">Wicket</button>
+      </div>
+      <div id="extras-runs" class="hidden">
+        <span>Additional runs:</span>
+        <button data-extras-runs="0">0</button>
+        <button data-extras-runs="1">1</button>
+        <button data-extras-runs="2">2</button>
+        <button data-extras-runs="3">3</button>
+        <button data-extras-runs="4">4</button>
+        <button id="extras-cancel">Cancel</button>
+      </div>
+    </section>
+
+    <section id="edit-pane" class="hidden">
+      <h3>Direct edit (innings <span id="edit-innings-no"></span>)</h3>
+      <h4>Batters</h4>
+      <table id="edit-batters"><thead><tr>
+        <th>Pos</th><th>Name</th><th>R</th><th>B</th><th>4s</th><th>6s</th>
+        <th>How out</th><th>Bowler</th><th>Fielder</th>
+      </tr></thead><tbody></tbody></table>
+      <h4>Bowlers</h4>
+      <table id="edit-bowlers"><thead><tr>
+        <th>Name</th><th>Overs</th><th>M</th><th>R</th><th>W</th><th>Wd</th><th>NB</th>
+      </tr></thead><tbody></tbody></table>
+      <h4>Extras</h4>
+      <div id="edit-extras">
+        <label>B <input id="ex-b" type="number" min="0"></label>
+        <label>LB <input id="ex-lb" type="number" min="0"></label>
+        <label>W <input id="ex-w" type="number" min="0"></label>
+        <label>NB <input id="ex-nb" type="number" min="0"></label>
+        <label>Pen <input id="ex-pen" type="number" min="0"></label>
+      </div>
+      <h4>State</h4>
+      <div id="edit-state">
+        <label>Legal balls <input id="ed-legal" type="number" min="0"></label>
+        <label>Striker pos <input id="ed-striker" type="number" min="1"></label>
+        <label>Non-striker pos <input id="ed-non" type="number" min="1"></label>
+        <label>Current bowler idx <input id="ed-bowler-idx" type="number" min="0"></label>
+        <label><input id="ed-declared" type="checkbox"> Declared</label>
+        <label><input id="ed-forfeited" type="checkbox"> Forfeited</label>
+      </div>
+      <div class="edit-actions">
+        <button id="edit-save">Save</button>
+        <button id="edit-discard">Discard</button>
+      </div>
+    </section>
+
+    <section id="players-panel" class="hidden">
+      <details><summary>Players</summary>
+        <div id="players-home"></div>
+        <div id="players-away"></div>
+      </details>
+    </section>
+  </main>
+
+  <!-- Modals -->
+  <div id="modal-root" class="hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal">
+      <h2 id="modal-title"></h2>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button id="modal-ok">OK</button>
+        <button id="modal-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "api_token": "REQUEST_FROM_ECB",
+  "club_site_id": 12345,
+  "poll_interval_seconds": 30,
+  "mock_mode": true,
+  "mock_data_path": "mock_data/mid_chase.json",
+
+  "api_base_url": "",
+  "sim_endpoint": "",
+  "sim_endpoint_send_on_change_only": true,
+
+  "debug_server_enabled": true,
+  "debug_server_port": 8080,
+  "debug_server_password": "changeme",
+
+  "repo_dir":    "/home/tenumen/scoreboard24",
+  "scripts_dir": "/home/tenumen/scoreboard24/scripts"
+}

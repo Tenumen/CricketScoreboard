@@ -1,0 +1,96 @@
+/* mock Play-Cricket — minimal scoring + visualizer styling */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: system-ui, sans-serif; background: #1b1d23; color: #e7e8eb; }
+a { color: #6db5ff; }
+a.active { font-weight: bold; }
+button { font: inherit; padding: 8px 14px; border: 1px solid #4a4f5a; background: #2a2e38; color: #e7e8eb; border-radius: 4px; cursor: pointer; }
+button:hover { background: #353a47; }
+button:active { background: #1e2027; }
+button.danger { background: #5c2a2e; border-color: #88404a; }
+button.danger:hover { background: #6a3036; }
+button.wicket { background: #7c2030; border-color: #a04050; font-weight: bold; }
+.hidden { display: none !important; }
+
+header { background: #14161b; padding: 12px 20px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid #333; }
+header h1 { font-size: 18px; margin: 0; }
+header nav { display: flex; gap: 16px; }
+header nav a { text-decoration: none; padding: 4px 8px; }
+
+main { padding: 16px 20px; max-width: 1100px; margin: 0 auto; }
+section { margin-bottom: 16px; padding: 12px; background: #20232b; border-radius: 6px; border: 1px solid #2c303a; }
+section h2, section h3, section h4 { margin: 0 0 8px 0; }
+
+/* match bar */
+#match-bar { display: flex; align-items: center; gap: 12px; }
+#match-bar select { padding: 6px 8px; background: #14161b; color: #e7e8eb; border: 1px solid #4a4f5a; border-radius: 4px; }
+#match-status { margin-left: auto; color: #a8aab2; font-size: 14px; }
+
+/* scorecard */
+#scorecard-summary { font-family: monospace; line-height: 1.5; }
+#target-line { margin-top: 8px; padding: 8px; background: #1b3030; border-radius: 4px; color: #ffd366; font-weight: bold; }
+
+/* mode toggle */
+#mode-toggle label { margin-right: 20px; }
+
+/* batters / bowler card */
+#batters { display: grid; grid-template-columns: 1fr 1fr 60px; gap: 12px; align-items: center; }
+.batter { padding: 12px; background: #14161b; border: 1px solid #2c303a; border-radius: 4px; }
+.batter.on-strike { border-color: #ffd366; box-shadow: 0 0 0 2px rgba(255, 211, 102, 0.2) inset; }
+.batter .role { display: block; font-size: 12px; color: #a8aab2; text-transform: uppercase; }
+.batter .name { display: block; font-size: 22px; font-weight: bold; margin: 4px 0; }
+.batter .score { display: block; font-family: monospace; font-size: 16px; color: #ffd366; }
+#swap-strike-btn { font-size: 24px; padding: 0; width: 50px; height: 50px; border-radius: 25px; }
+#bowler-card { margin-top: 12px; padding: 10px; background: #14161b; border: 1px solid #2c303a; border-radius: 4px; }
+#bowler-card .role { font-size: 12px; color: #a8aab2; text-transform: uppercase; margin-right: 8px; }
+#bowler-card .name { font-weight: bold; }
+#bowler-card .figs { font-family: monospace; margin-left: 12px; color: #ffd366; }
+#recent-balls { margin-top: 8px; font-family: monospace; font-size: 16px; color: #a8aab2; }
+#recent-balls .ball-W { color: #ff6680; font-weight: bold; }
+#recent-balls .ball-4 { color: #ffd366; font-weight: bold; }
+#recent-balls .ball-6 { color: #88ffaa; font-weight: bold; }
+
+/* score buttons */
+#run-buttons, #extras-buttons, #extras-runs { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+#run-buttons button { min-width: 60px; font-size: 22px; font-weight: bold; padding: 14px 18px; }
+#extras-buttons button { font-size: 16px; padding: 12px 16px; }
+#extras-runs { padding: 12px; background: #14161b; border-radius: 4px; align-items: center; }
+
+/* direct edit */
+#edit-pane table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+#edit-pane th, #edit-pane td { padding: 6px; border-bottom: 1px solid #2c303a; text-align: left; }
+#edit-pane th { color: #a8aab2; font-size: 12px; font-weight: normal; text-transform: uppercase; }
+#edit-pane input[type=number], #edit-pane input[type=text], #edit-pane select { width: 80px; padding: 4px; background: #14161b; color: #e7e8eb; border: 1px solid #4a4f5a; border-radius: 3px; }
+#edit-pane input[type=text] { width: 140px; }
+#edit-extras, #edit-state { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+#edit-extras label, #edit-state label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #a8aab2; }
+#edit-extras input, #edit-state input { width: 80px; }
+.edit-actions { display: flex; gap: 12px; margin-top: 8px; }
+
+/* players panel */
+#players-panel details { background: #14161b; padding: 8px; border-radius: 4px; }
+#players-panel summary { cursor: pointer; padding: 4px; }
+#players-panel ol { font-family: monospace; }
+
+/* modal */
+#modal-root { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+.modal { position: relative; background: #20232b; padding: 24px; border-radius: 8px; min-width: 400px; max-width: 90vw; max-height: 90vh; overflow: auto; border: 1px solid #4a4f5a; }
+.modal h2 { margin-top: 0; }
+.modal label { display: block; margin-bottom: 10px; }
+.modal input[type=text], .modal input[type=number], .modal select, .modal textarea {
+  width: 100%; padding: 8px; background: #14161b; color: #e7e8eb; border: 1px solid #4a4f5a; border-radius: 4px; font: inherit;
+}
+.modal textarea { min-height: 120px; font-family: monospace; }
+.modal-actions { display: flex; gap: 12px; margin-top: 16px; justify-content: flex-end; }
+
+/* visualizer */
+body.visualizer main { max-width: none; }
+#viz-toolbar { display: flex; gap: 16px; align-items: center; padding: 12px; background: #20232b; border-radius: 6px; margin-bottom: 16px; }
+#viz-toolbar select { padding: 4px; background: #14161b; color: #e7e8eb; border: 1px solid #4a4f5a; border-radius: 3px; }
+#viz-status { margin-left: auto; color: #a8aab2; font-size: 14px; }
+#wall-wrapper { display: flex; justify-content: center; padding: 24px; background: #0a0b0d; border-radius: 6px; }
+#wall { position: relative; transform-origin: top left; }
+#wall-canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+#bezel-grid { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(6, 64px); grid-template-rows: repeat(4, 64px); gap: 0; pointer-events: none; }
+#bezel-grid > div { border: 2px solid #15171b; box-sizing: border-box; }

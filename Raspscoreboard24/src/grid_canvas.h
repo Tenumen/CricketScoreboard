@@ -8,13 +8,11 @@
 
 #include "canvas.h"
 
-namespace rgb_matrix { class FrameCanvas; }
-
 namespace cricketboard {
 
 class GridCanvas : public rgb_matrix::Canvas {
 public:
-    explicit GridCanvas(rgb_matrix::FrameCanvas *backing);
+    explicit GridCanvas(rgb_matrix::Canvas *backing);
 
     int width() const override;
     int height() const override;
@@ -23,11 +21,11 @@ public:
     void Clear() override;
     void Fill(uint8_t r, uint8_t g, uint8_t b) override;
 
-    rgb_matrix::FrameCanvas *backing() const { return backing_; }
-    void set_backing(rgb_matrix::FrameCanvas *backing) { backing_ = backing; }
+    rgb_matrix::Canvas *backing() const { return backing_; }
+    void set_backing(rgb_matrix::Canvas *backing) { backing_ = backing; }
 
 private:
-    rgb_matrix::FrameCanvas *backing_;
+    rgb_matrix::Canvas *backing_;
 };
 
 }  // namespace cricketboard
