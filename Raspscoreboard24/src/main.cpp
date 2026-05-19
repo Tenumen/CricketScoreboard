@@ -10,6 +10,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
+#define STBI_ONLY_BMP
 #include "stb_image.h"
 
 #include <signal.h>
@@ -237,10 +238,10 @@ int main(int argc, char *argv[]) {
 
     // Load the club crest (RGBA). Path is relative to the binary's CWD on the Pi.
     int logo_w = 0, logo_h = 0, logo_channels = 0;
-    unsigned char *logo_data = stbi_load("assets/Improved_logo.png",
+    unsigned char *logo_data = stbi_load("assets/resized_logo.bmp",
                                          &logo_w, &logo_h, &logo_channels, 4);
     if (!logo_data) {
-        fprintf(stderr, "Warning: failed to load logo 'assets/Improved_logo.png': %s\n",
+        fprintf(stderr, "Warning: failed to load logo 'assets/resized_logo.bmp': %s\n",
                 stbi_failure_reason());
     }
 
@@ -257,23 +258,20 @@ int main(int argc, char *argv[]) {
         grid.Fill(0, 0, 0);
 
         // ===== Row A LEFT : club crest =====
-        // Bounding box (margin 2 px from extremity inside):
-        //   left  =  2 (2 px from display left edge)
-        //   top   =  2 (2 px from display top edge)
-        //   right = 98 (12 px to the left of the "A" of ASTON ON TRENT at x=110)
-        //   bot   = 88 (6 px above the top of the RUNS text)
-        // Box is 96 wide × 86 tall. With 1:1 aspect the height is the tighter
-        // constraint: 82×82 logo gives the requested 2 px top/bottom margins and
-        // 7 px each side. Top-left lands at (9, 4).
-        constexpr int kLogoX = 9, kLogoY = 4;
-        constexpr int kLogoSize = 82;
+        // 96 × 112 slot, top-left at (2, 2). With the resized_logo.bmp
+        // source being exactly 96×112, draw_rgba_image renders it 1:1 (no
+        // scaling). Slot extends to (98, 114) — into Row B's territory, so
+        // the RUNS row + everything below it shifts down 6 px to give the
+        // logo's lower edge clear air above the RUNS text.
+        constexpr int kLogoX = 2, kLogoY = 2;
+        constexpr int kLogoW = 96, kLogoH = 112;
         if (logo_data && logo_w > 0 && logo_h > 0) {
             draw_rgba_image(logo_data, logo_w, logo_h,
-                            kLogoX, kLogoY, kLogoSize, kLogoSize);
+                            kLogoX, kLogoY, kLogoW, kLogoH);
         } else {
-            draw_rect(kLogoX, kLogoY, kLogoSize, kLogoSize, c_grey);
-            draw_centered(font_label, kLogoX + kLogoSize / 2,
-                          kLogoY + kLogoSize / 2 + 4, c_white, "LOGO");
+            draw_rect(kLogoX, kLogoY, kLogoW, kLogoH, c_grey);
+            draw_centered(font_label, kLogoX + kLogoW / 2,
+                          kLogoY + kLogoH / 2 + 4, c_white, "LOGO");
         }
 
         // ===== Row A MID : match title (home / vs / opponent, 3 stacked lines) =====
@@ -298,67 +296,58 @@ int main(int argc, char *argv[]) {
                           c_amber, buf);
         }
 
+        // Row B / Row C / Row D-batters shift +6 px down from the original
+        // spec to clear the taller 96×112 logo. LAST INNS (Row D RIGHT) stays
+        // at its original y so it doesn't run off the bottom of the canvas.
+
         // ===== Row B LEFT : "RUNS" label =====
         // Left-justified at x = kLeftCx - 50 = 14, same x as BAT 1 / BAT 2.
         draw_left(font_label_big, kLeftCx - 50,
-                  baseline_for_centre(font_label_big, 109), c_white, "RUNS");
+                  baseline_for_centre(font_label_big, 115), c_white, "RUNS");
 
         // ===== Row B MID : runs total (large; the main score) =====
         snprintf(buf, sizeof(buf), "%d", s.runs);
-        // Number 2: centred between B3 and B4 at (192, 112) (16 px lower than centreline).
-        draw_centered(font_score, kMidCx - 12, baseline_for_centre(font_score, 112),
+        draw_centered(font_score, kMidCx - 12, baseline_for_centre(font_score, 118),
                       c_amber, buf);
 
         // ===== Row B RIGHT : WKTS <count> =====
         draw_centered(font_label, kRightCx - 32, baseline_for_centre(font_label, 96),
                       c_white, "WKTS");
         snprintf(buf, sizeof(buf), "%d", s.wkts);
-        // Number 3: panel B6 centreline (352, 96).
         draw_centered(font_small_num, 350, baseline_for_centre(font_small_num, 96),
                       c_red, buf);
 
         // ===== Row C LEFT : BAT 1 + name (* on strike) =====
-        // Left-justified at x = kLeftCx - 50 = 14. BAT 1 label uses font_label_big
-        // (~50% larger than the name font). Label centred on row C panel 1/4 line
-        // (y=144); name on 3/4 line (y=176) at standard font_label.
         draw_left(font_label_big, kLeftCx - 50,
-                  baseline_for_centre(font_label_big, 157), c_white, "BAT 1");
+                  baseline_for_centre(font_label_big, 163), c_white, "BAT 1");
         snprintf(buf, sizeof(buf), "%s%s",
                  s.bat1_name.c_str(), s.on_strike == 1 ? " *" : "");
-        draw_left(font_label, kLeftCx - 50, baseline_for_centre(font_label, 189),
+        draw_left(font_label, kLeftCx - 50, baseline_for_centre(font_label, 192),
                   c_cyan, buf);
 
         // ===== Row C MID : bat 1 score =====
         snprintf(buf, sizeof(buf), "%d", s.bat1_score);
-        // Number 4: centred between C3 and C4 at (192, 176) (16 px lower than centreline).
-        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 176),
+        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 182),
                       c_white, buf);
 
         // ===== Row C RIGHT : OVERS <count> =====
         draw_centered(font_label, kRightCx - 32, baseline_for_centre(font_label, 160),
                       c_white, "OVERS");
-        // Overs come from the API as a string like "12.3"; print verbatim.
-        // Fall back to a hyphen if empty so the cell never goes blank mid-match.
         const char *overs_str = s.overs.empty() ? "-" : s.overs.c_str();
-        // Number 5: panel C6 centreline (352, 160).
         draw_centered(font_small_num, 350, baseline_for_centre(font_small_num, 160),
                       c_green, overs_str);
 
         // ===== Row D LEFT : BAT 2 + name (* on strike) =====
-        // Left-justified at x = kLeftCx - 50 = 14. BAT 2 label uses font_label_big;
-        // name uses standard font_label. Label on row D panel 1/4 line (y=208);
-        // name on 3/4 line (y=240).
         draw_left(font_label_big, kLeftCx - 50,
-                  baseline_for_centre(font_label_big, 221), c_white, "BAT 2");
+                  baseline_for_centre(font_label_big, 222), c_white, "BAT 2");
         snprintf(buf, sizeof(buf), "%s%s",
                  s.bat2_name.c_str(), s.on_strike == 2 ? " *" : "");
-        draw_left(font_label, kLeftCx - 50, baseline_for_centre(font_label, 245),
+        draw_left(font_label, kLeftCx - 50, baseline_for_centre(font_label, 246),
                   c_cyan, buf);
 
         // ===== Row D MID : bat 2 score =====
         snprintf(buf, sizeof(buf), "%d", s.bat2_score);
-        // Number 6: centred between D3 and D4 at (192, 240) (16 px lower than centreline).
-        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 240),
+        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 241),
                       c_white, buf);
 
         // ===== Row D RIGHT : LAST INNS <runs> <wkts> =====
