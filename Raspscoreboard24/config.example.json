@@ -5,6 +5,7 @@
   "mock_mode": true,
   "mock_data_path": "mock_data/mid_chase.json",
 
+  "_api_base_url_help": "Empty = play-cricket.com (live). http://192.168.1.150:5050 = mock_playcricket Flask app. http://127.0.0.1:5051 = playcricket_ble_bridge (BLE from Pixel 9a).",
   "api_base_url": "",
   "sim_endpoint": "",
   "sim_endpoint_send_on_change_only": true,

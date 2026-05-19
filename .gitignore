@@ -11,3 +11,10 @@ mock_playcricket/state.json
 mock_playcricket/.venv/
 mock_playcricket/__pycache__/
 mock_playcricket/**/__pycache__/
+
+# BLE bridge runtime + dev artefacts
+playcricket_ble_bridge/.venv/
+playcricket_ble_bridge/.pytest_cache/
+playcricket_ble_bridge/discovery.log
+playcricket_ble_bridge/__pycache__/
+playcricket_ble_bridge/**/__pycache__/

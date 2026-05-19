@@ -52,3 +52,16 @@ rotation. Edit it and rebuild when calibration shows something wrong. See
 
 Rows 1–3 are spec-only — pixel coords are sketched in `DISPLAY_NOTES_24.md` and need
 implementing.
+
+## Match-data sources
+
+The binary polls a Play-Cricket-shaped HTTP API set by `api_base_url` in
+`config.json`. Three setups are supported, without any rebuild:
+
+| Setup           | `api_base_url`                       | Notes                                                           |
+| --------------- | ------------------------------------ | --------------------------------------------------------------- |
+| Live (internet) | empty (default play-cricket.com)     | The real ECB API. Needs club `api_token` + `club_site_id`.      |
+| Mock dev server | `http://192.168.1.150:5050`          | The sibling `mock_playcricket/` Flask app — for off-ground dev. |
+| Bluetooth bridge | `http://127.0.0.1:5051`             | The sibling `../playcricket_ble_bridge/` Python service — receives scores over BLE from the Play-Cricket Scorer Android app on the Pixel 9a. Use this on match day when there is no internet. |
+
+See each sibling's README for setup details.

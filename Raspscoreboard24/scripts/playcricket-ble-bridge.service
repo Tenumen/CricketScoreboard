@@ -1,0 +1,20 @@
+[Unit]
+Description=Play-Cricket Scorer BLE bridge (Pixel 9a -> scoreboard24)
+After=bluetooth.service network-online.target
+Wants=bluetooth.service network-online.target
+
+[Service]
+Type=simple
+User=tenumen
+Group=tenumen
+WorkingDirectory=/home/tenumen/playcricket_ble_bridge
+ExecStart=/home/tenumen/playcricket_ble_bridge/run.sh --host 127.0.0.1 --port 5051
+Restart=on-failure
+RestartSec=5
+# BLE peripheral mode needs the BLUETOOTH capability; user is in bluetooth group.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
