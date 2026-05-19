@@ -48,6 +48,12 @@ TOKEN_CATALOGUE = {
     "LWK": "Last wicket — team score when it fell",
     "LWS": "Last wicket batter's score",
     "LWD": "Last wicket decision (b/lbw/c/ro/hw/ht/to/of/rt)",
+    "B1N": "Batter 1 name (text)",
+    "B2N": "Batter 2 name (text)",
+    "F1N": "Current bowler name (text)",
+    "F1S": "Current bowler stats — 'runs/wickets (overs)'",
+    "F2N": "Partner-end bowler name (text)",
+    "F2S": "Partner-end bowler stats",
 }
 
 DISMISSAL_NAMES = {

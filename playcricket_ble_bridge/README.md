@@ -112,6 +112,23 @@ unit-test suite.
 - **No scoring UI here.** The bridge is read-only: only the phone can
   change state. To replay a match offline, use the sibling
   `mock_playcricket/` Flask app instead.
+- **Restarting the bridge breaks the active GATT session.** If you
+  `systemctl restart playcricket-ble-bridge` while the phone is
+  connected, the Play-Cricket Scorer app holds a stale service handle
+  and silently writes into the void — Android still shows the device
+  as connected, but no tokens reach the bridge. Fix: in the app go to
+  External scoreboard settings, **disconnect** from `scoreboard24`,
+  then **reconnect**. That forces a fresh GATT service discovery and
+  the connection-init sequence (B1N / B2N / FTN / COV / …) re-fires.
+  If a tap-disconnect doesn't wake it up: force-stop the app; last
+  resort: "Forget" the device in Android BT settings and re-pair.
+- **Pi-side first-time enable.** The bridge needs `bluetooth.service`
+  active and a pairing agent. On a fresh Pi: ensure
+  `/boot/firmware/config.txt` does NOT contain `dtoverlay=disable-bt`
+  (Pi 3B's onboard BT is disabled by that overlay), then
+  `sudo apt install bluez-tools` and run a NoInputNoOutput agent —
+  `Raspscoreboard24/scripts/playcricket-ble-bridge.service` and a
+  sibling `bt-agent.service` unit are documented in CHANGE.md.
 
 ## Systemd unit
 

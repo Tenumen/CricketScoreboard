@@ -188,6 +188,115 @@ def test_realistic_scoring_sequence_produces_in_progress_match():
     assert runs == [34, 67]
 
 
+def test_cov_drives_runs_and_overs_when_bts_lags():
+    """Scenario from real Pixel 9a output 2026-05-19: app sends COV every
+    ball but BTS / OVB only on some balls. The wall must reflect the latest
+    over count and runs via COV."""
+    acc = MatchAccumulator()
+    # Ball 1 dot, balls 2-5 singles, ball 6 single. App sends BTS only after
+    # ball 5 ('4/0') and never after ball 6. The wall must still read 5/1.0.
+    for code, val in [
+        ("COV", ". "),                # ball 1: dot
+        ("COV", ". 1 "),               # ball 2: 1 run
+        ("COV", ". 1 1 "),             # ball 3
+        ("COV", ". 1 1 1 "),           # ball 4
+        ("OVB", "0.5"),                # explicit only after ball 5
+        ("BTS", "4/0"),
+        ("COV", ". 1 1 1 1 "),         # ball 5 (BTS / OVB already arrived)
+        ("COV", ". 1 1 1 1 1 "),       # ball 6 — no BTS / OVB follow-up
+    ]:
+        acc.apply(code, val)
+    inn = acc.snapshot().innings[-1]
+    assert inn.runs  == 5,   f"expected 5 runs, got {inn.runs}"
+    assert inn.overs == "1.0", f"expected 1.0 overs, got {inn.overs!r}"
+
+
+def test_cov_rolls_over_at_end_of_over():
+    acc = MatchAccumulator()
+    # Complete one over of 6 singles, then a fresh over with one dot.
+    for v in [". ", ". 1 ", ". 1 1 ", ". 1 1 1 ", ". 1 1 1 1 ", ". 1 1 1 1 1 "]:
+        acc.apply("COV", v)
+    acc.apply("COV", " ")                  # over rollover: empty COV
+    acc.apply("COV", ". ")                 # ball 1 of over 2: dot
+    inn = acc.snapshot().innings[-1]
+    assert inn.runs  == 5
+    assert inn.overs == "1.1"
+
+
+def test_bts_does_not_regress_runs_when_arriving_stale():
+    """COV-derived runs may exceed the most recent BTS; a stale BTS must not
+    pull the total back down."""
+    acc = MatchAccumulator()
+    acc.apply("COV", ". 1 1 1 1 1 ")       # COV-derives 5 runs
+    acc.apply("BTS", "4/0")                # stale BTS for ball 5; must not regress
+    inn = acc.snapshot().innings[-1]
+    assert inn.runs == 5
+
+
+def test_b1n_b2n_set_batsman_names():
+    acc = MatchAccumulator()
+    acc.apply("B1N", "A Afirstname")
+    acc.apply("B2N", "B B")
+    inn = acc.snapshot().innings[-1]
+    assert inn.bat[0].batsman_name == "A Afirstname"
+    assert inn.bat[1].batsman_name == "B B"
+
+
+def test_f1n_f1s_recognised_no_longer_unknown():
+    acc = MatchAccumulator()
+    acc.apply("F1N", "T T")
+    acc.apply("F1S", "5/0 (1.0)")
+    assert "F1N" not in acc.unknown_codes()
+    assert "F1S" not in acc.unknown_codes()
+
+
+def test_cov_credits_runs_to_current_striker():
+    """Real-world Pixel 9a behaviour 2026-05-19: app emits B1S/B2S only at
+    the connection-init snapshot. After that, per-batter runs must be
+    derived from COV + B*K strike-tracking."""
+    acc = MatchAccumulator()
+    # Reconnect snapshot: COV shows first ball of over was a six, B1S says
+    # B1 already has 9 (the snapshot includes prior overs), B2 has 2.
+    acc.apply("COV", "6 ")
+    acc.apply("B1S", "9")
+    acc.apply("B1K", "1")
+    acc.apply("B2S", "2")
+    acc.apply("B2K", "0")
+    inn = acc.snapshot().innings[-1]
+    assert inn.bat[0].runs == 9 and inn.bat[1].runs == 2
+
+    # Ball 2 of the over: 2 runs by B1 (still on strike).
+    acc.apply("COV", "6 2 ")
+    assert acc.snapshot().innings[-1].bat[0].runs == 11
+
+    # Ball 3: single, strike rotates to B2.
+    acc.apply("COV", "6 2 1 ")
+    acc.apply("B1K", "0")
+    acc.apply("B2K", "1")
+    inn = acc.snapshot().innings[-1]
+    assert inn.bat[0].runs == 12   # 11 + 1 (last ball B1 faced)
+    assert inn._striker_idx == 1
+
+    # Balls 4-6: three doubles by B2, no strike rotations.
+    acc.apply("COV", "6 2 1 2 ")
+    acc.apply("COV", "6 2 1 2 2 ")
+    acc.apply("COV", "6 2 1 2 2 2 ")
+    inn = acc.snapshot().innings[-1]
+    assert inn.bat[1].runs == 8    # 2 + 6
+    assert inn.bat[0].runs == 12   # unchanged across over
+    assert inn.runs == 15
+    assert inn.overs == "1.0"
+
+
+def test_b2s_snapshot_overrides_prior_cov_attribution():
+    """A late B*S snapshot (e.g. after a reconnect mid-over) should replace
+    whatever the COV path had derived."""
+    acc = MatchAccumulator()
+    acc.apply("COV", "6 ")       # COV credits 6 to default striker (B1)
+    acc.apply("B1S", "9")        # snapshot says actually 9
+    assert acc.snapshot().innings[-1].bat[0].runs == 9
+
+
 def test_result_summary_envelope_shape():
     acc = MatchAccumulator()
     acc.apply("BTN", "Aston on Trent")

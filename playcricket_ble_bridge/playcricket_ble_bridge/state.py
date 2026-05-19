@@ -55,6 +55,20 @@ class Innings:
     bat: List[Bat] = field(default_factory=lambda: [Bat(position=1), Bat(position=2)])
     fow: List[Fow] = field(default_factory=list)
 
+    # COV-derived running tallies. The Play-Cricket Scorer app sometimes
+    # skips BTS / OVB updates between balls (it only refreshes them on
+    # certain events), but COV — the ball-by-ball over summary — is sent
+    # every single ball. We parse it as a fallback so the wall never lags.
+    _legal_balls_at_over_start: int = 0
+    _runs_at_over_start:        int = 0
+    _prev_cov_balls:            int = 0
+    # Per-batter run derivation. The app only sends B*S at the connection
+    # snapshot; subsequent balls arrive via COV + B*K (strike). We attribute
+    # each new ball's runs to whichever batter B*K marks as on-strike at the
+    # moment the ball arrives. `_cov_balls_attributed` keeps us idempotent.
+    _striker_idx:           int = 0   # 0 = bat[0] facing, 1 = bat[1] facing
+    _cov_balls_attributed:  int = 0
+
 
 @dataclass
 class MatchState:
@@ -89,6 +103,45 @@ def _parse_score(value: str) -> tuple[int, int]:
         runs, wkts = value.split("/", 1)
         return (int(runs or 0), int(wkts or 0))
     return (int(value or 0), 0)
+
+
+def _parse_cov_balls(value: str) -> list[int]:
+    """Parse a COV ball-by-ball summary into a list of per-ball run values.
+
+    Each entry is the number of runs scored off that delivery:
+      '.'        ->  0
+      digit(s)   ->  that many
+      'W'        ->  0 (wicket — counted via LWK/LWD elsewhere)
+      anything else -> 0 (best-effort; flagged for review in discovery.log)
+
+    Empty / whitespace-only string returns []. List length = balls in the
+    over so far.
+    """
+    out: list[int] = []
+    for tok in value.strip().split():
+        if tok == ".":
+            out.append(0)
+        elif tok.isdigit():
+            out.append(int(tok))
+        elif tok.upper().startswith("W"):
+            out.append(0)
+        else:
+            out.append(0)
+    return out
+
+
+def _parse_cov(value: str) -> tuple[int, int]:
+    """Aggregate form of _parse_cov_balls: returns (balls, runs)."""
+    balls_list = _parse_cov_balls(value)
+    return (len(balls_list), sum(balls_list))
+
+
+def _legal_balls_from_overs(overs: str) -> int:
+    """Convert 'X.Y' overs notation to integer legal balls."""
+    if "." not in overs:
+        return int(overs or 0) * 6
+    o, b = overs.split(".", 1)
+    return int(o or 0) * 6 + int(b or 0)
 
 
 class MatchAccumulator:
@@ -154,18 +207,22 @@ def _ensure_second_innings(s: MatchState, batting_team_name: str) -> None:
 def _h_bts(s: MatchState, value: str) -> bool:
     runs, wkts = _parse_score(value)
     inn = _current_innings(s)
-    if inn.runs == runs and inn.wickets == wkts:
+    # Runs go forward only — the COV-derived path may have us at a higher
+    # total already because BTS is sometimes a delivery behind.
+    new_runs = max(inn.runs, runs)
+    if inn.runs == new_runs and inn.wickets == wkts:
         return False
-    inn.runs = runs
+    inn.runs    = new_runs
     inn.wickets = wkts
-    s.status = "In Progress"
+    s.status    = "In Progress"
     return True
 
 
 def _h_ovb(s: MatchState, value: str) -> bool:
     overs = _parse_overs(value)
     inn = _current_innings(s)
-    if inn.overs == overs:
+    # Overs go forward only (see BTS for the same rationale).
+    if _legal_balls_from_overs(overs) <= _legal_balls_from_overs(inn.overs):
         return False
     inn.overs = overs
     s.status = "In Progress"
@@ -189,9 +246,72 @@ def _h_ovr(s: MatchState, value: str) -> bool:
 
 
 def _h_cov(s: MatchState, value: str) -> bool:
-    # Fired at end of each over; trailing 'W' marks a wicket-ending over. We
-    # rely on BTS/B1S/B2S to carry the actual numbers, so COV alone is a
-    # no-op for the rendered state.
+    """COV is the running ball-by-ball summary of the current over. It is
+    refreshed on every delivery, including ones where BTS/OVB aren't sent.
+    Treat it as the authoritative source for "where in the over we are" and
+    derive runs/overs from it, never letting them go backwards.
+
+    Detect end-of-over by ball-count shrinkage between successive COVs and
+    bank the current totals into _legal_balls_at_over_start /
+    _runs_at_over_start so the next over starts from a known baseline. On
+    rollover the per-batter attribution cursor resets too.
+
+    Each new ball's runs are credited to whichever bat[*] B*K marks as on
+    strike — the app stops sending B*S after the connection-init snapshot,
+    so this attribution is the only way to keep per-batter scores live.
+    """
+    inn = _current_innings(s)
+    balls_list = _parse_cov_balls(value)
+    balls      = len(balls_list)
+    runs       = sum(balls_list)
+
+    if balls < inn._prev_cov_balls and inn._prev_cov_balls > 0:
+        inn._legal_balls_at_over_start += inn._prev_cov_balls
+        inn._runs_at_over_start         = max(inn._runs_at_over_start, inn.runs)
+        inn._cov_balls_attributed       = 0
+
+    inn._prev_cov_balls = balls
+
+    # Credit any not-yet-attributed balls to the current striker.
+    striker_changed = False
+    if balls > inn._cov_balls_attributed:
+        for ball_runs in balls_list[inn._cov_balls_attributed:balls]:
+            if ball_runs > 0:
+                inn.bat[inn._striker_idx].runs += ball_runs
+                striker_changed = True
+        inn._cov_balls_attributed = balls
+
+    total_legal_balls = inn._legal_balls_at_over_start + balls
+    derived_overs     = f"{total_legal_balls // 6}.{total_legal_balls % 6}"
+    derived_runs      = inn._runs_at_over_start + runs
+
+    changed = False
+    if total_legal_balls > _legal_balls_from_overs(inn.overs):
+        inn.overs = derived_overs
+        changed = True
+    if derived_runs > inn.runs:
+        inn.runs = derived_runs
+        changed = True
+    if changed or striker_changed:
+        s.status = "In Progress"
+    return changed or striker_changed
+
+
+def _h_batter_name(idx: int, s: MatchState, value: str) -> bool:
+    name = value.strip()
+    if not name:
+        return False
+    inn = _current_innings(s)
+    if inn.bat[idx].batsman_name == name:
+        return False
+    inn.bat[idx].batsman_name = name
+    return True
+
+
+def _h_bowler_info(s: MatchState, value: str) -> bool:
+    # F1N / F1S — current bowler name / stats. Informational; not surfaced
+    # on the wall yet, but we accept them so they stop being logged as
+    # UNKNOWN.
     return False
 
 
@@ -309,11 +429,22 @@ def _h_batter_balls(idx: int, s: MatchState, value: str) -> bool:
 
 
 def _h_batter_strike(idx: int, s: MatchState, value: str) -> bool:
-    # B1K1 / B2K1 — striker indicator. The C++ side draws a '*' next to the
-    # striker, but the current renderer doesn't read this directly — kept
-    # for future use. Treat as no-op for now to avoid spurious generation
-    # bumps on every ball.
-    return False
+    """B1K1 / B2K1 — striker indicator. Update _striker_idx so the COV
+    handler attributes subsequent balls to the right batter. Either '1'
+    (this batter is now on strike) or '0' (the other batter is) is honoured.
+    """
+    inn = _current_innings(s)
+    v = value.strip()
+    if v == "1":
+        new_idx = idx
+    elif v == "0":
+        new_idx = 1 - idx
+    else:
+        return False
+    if inn._striker_idx == new_idx:
+        return False
+    inn._striker_idx = new_idx
+    return True
 
 
 def _h_lwk(s: MatchState, value: str) -> bool:
@@ -362,6 +493,10 @@ _HANDLERS = {
     "B2S": lambda s, v: _h_batter_score(1, s, v),
     "B2B": lambda s, v: _h_batter_balls(1, s, v),
     "B2K": lambda s, v: _h_batter_strike(1, s, v),
+    "B1N": lambda s, v: _h_batter_name(0, s, v),
+    "B2N": lambda s, v: _h_batter_name(1, s, v),
+    "F1N": _h_bowler_info,
+    "F1S": _h_bowler_info,
     "LWK": _h_lwk,
     "LWS": _h_lws,
     "LWD": _h_lwd,
