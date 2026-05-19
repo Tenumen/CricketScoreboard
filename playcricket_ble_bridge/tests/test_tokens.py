@@ -86,12 +86,37 @@ def test_ovb_normalises_bare_integer():
     assert acc.snapshot().innings[-1].overs == "5.3"
 
 
-def test_btn_sets_home_team_name_first_innings():
+def test_home_team_name_hardcoded_at_construction():
+    """home_team_name is pinned at MatchAccumulator init — the Play-Cricket
+    Scorer app does not transmit it over BLE."""
+    snap = MatchAccumulator().snapshot()
+    assert snap.home_team_name == "Aston on Trent"
+
+
+def test_btn_home_does_not_overwrite_hardcoded_home():
     acc = MatchAccumulator()
-    acc.apply("BTN", "Aston on Trent")
+    acc.apply("BTN", "Aston on Trent")             # home batting
     snap = acc.snapshot()
     assert snap.home_team_name == "Aston on Trent"
     assert snap.innings[-1].team_batting_name == "Aston on Trent"
+    assert snap.away_team_name == ""               # no away info yet
+
+
+def test_btn_away_learns_away_team_name():
+    acc = MatchAccumulator()
+    acc.apply("BTN", "Melbourne")                  # away batting first
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston on Trent" # untouched
+    assert snap.away_team_name == "Melbourne"
+    assert snap.innings[-1].team_batting_name == "Melbourne"
+
+
+def test_ftn_fills_away_team_name():
+    acc = MatchAccumulator()
+    acc.apply("FTN", "Away")
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston on Trent"
+    assert snap.away_team_name == "Away"
 
 
 def test_btn_change_opens_second_innings():
@@ -106,6 +131,7 @@ def test_btn_change_opens_second_innings():
     assert snap.innings[0].runs == 180
     assert snap.innings[1].team_batting_name == "Melbourne"
     assert snap.innings[1].innings_number == 2
+    assert snap.away_team_name == "Melbourne"
 
 
 def test_btt_sets_revised_target_and_opens_second_innings():
@@ -159,7 +185,7 @@ def test_realistic_scoring_sequence_produces_in_progress_match():
     acc = MatchAccumulator(our_club_id=42)
     # Innings 1 — Aston on Trent batting
     for code, val in [
-        ("BTN", "Aston on Trent 1st XI"),
+        ("BTN", "Aston on Trent"),                 # matches hardcoded home
         ("FTN", "Melbourne 1st XI"),
         ("BTS", "0/0"),
         ("OVB", "0.0"),
@@ -176,7 +202,7 @@ def test_realistic_scoring_sequence_produces_in_progress_match():
     snap = acc.snapshot()
     detail = serializers.match_detail_envelope(snap)
     md = detail["match_details"][0]
-    assert md["home_team_name"] == "Aston on Trent 1st XI"
+    assert md["home_team_name"] == "Aston on Trent"
     assert md["away_team_name"] == "Melbourne 1st XI"
     assert md["status"] == "In Progress"
     inn = md["innings"][0]

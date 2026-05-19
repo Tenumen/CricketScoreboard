@@ -23,6 +23,13 @@ from typing import List, Optional
 from . import tokens as T
 
 
+# Hardcoded — this bridge runs at Aston on Trent VCC's ground. The
+# Play-Cricket Scorer app does not transmit the home team name over BLE
+# under any token we have observed, so it's pinned here. Change here if
+# the bridge is ever installed at another club.
+HOME_TEAM_NAME = "Aston on Trent"
+
+
 @dataclass
 class Bat:
     position: int = 1
@@ -153,7 +160,8 @@ class MatchAccumulator:
         self._state = MatchState()
         # Pretend our club is the home side so the C++ chasing logic resolves.
         # Set via config so the wall labels "home/opponent" correctly.
-        self._state.home_club_id = our_club_id
+        self._state.home_club_id   = our_club_id
+        self._state.home_team_name = HOME_TEAM_NAME
         self._generation = 0
         self._unknown_codes: dict[str, int] = {}
 
@@ -316,32 +324,27 @@ def _h_bowler_info(s: MatchState, value: str) -> bool:
 
 
 def _h_ftn(s: MatchState, value: str) -> bool:
+    """FTN = fielding team this innings. With home_team_name hardcoded, the
+    incoming value is the away team whenever it differs from home; if it
+    matches home, then home is fielding and the away side is batting (no
+    away-name info to extract).
+    """
     name = value.strip()
-    if not name:
+    if not name or name == s.home_team_name:
         return False
-    cur = _current_innings(s)
-    # Fielding team = the side NOT batting in this innings.
-    if cur.team_batting_name == name:
+    if s.away_team_name == name:
         return False
-    if cur.innings_number == 1 and not s.home_team_name and not s.away_team_name:
-        # First innings: assume we (home) batting first by default; the BTN
-        # handler will correct this if BTN tells us otherwise.
-        s.away_team_name = name
-        return True
-    if cur.innings_number == 1:
-        # Already learnt one side; this fills in the other.
-        if cur.team_batting_name == s.home_team_name:
-            if s.away_team_name != name:
-                s.away_team_name = name
-                return True
-        else:
-            if s.home_team_name != name:
-                s.home_team_name = name
-                return True
-    return False
+    s.away_team_name = name
+    return True
 
 
 def _h_btn(s: MatchState, value: str) -> bool:
+    """BTN = batting team this innings. With home_team_name hardcoded:
+      - If BTN matches home, home is batting (no away-name info).
+      - Otherwise, BTN is the away team and we learn its name here.
+    A BTN whose value differs from the current innings' batting-team
+    name still triggers the "open 2nd innings" path (the team flipped).
+    """
     name = value.strip()
     if not name:
         return False
@@ -351,21 +354,9 @@ def _h_btn(s: MatchState, value: str) -> bool:
     if cur.team_batting_name != name:
         cur.team_batting_name = name
         changed = True
-    # Mirror onto match-level team names so the C++ side has labels.
-    if cur.innings_number == 1:
-        if s.home_team_name != name:
-            s.home_team_name = name
-            changed = True
-    elif cur.innings_number == 2:
-        # Innings 2 batting side = the OTHER team. If we haven't recorded
-        # them yet, fill in.
-        if s.away_team_name and s.away_team_name != name:
-            # away_team_name was a guess from FTN — name now confirmed for
-            # innings 2; nothing to do here.
-            pass
-        elif not s.away_team_name:
-            s.away_team_name = name
-            changed = True
+    if name != s.home_team_name and s.away_team_name != name:
+        s.away_team_name = name
+        changed = True
     return changed
 
 
