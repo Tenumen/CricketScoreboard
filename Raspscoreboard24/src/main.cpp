@@ -307,7 +307,7 @@ int main(int argc, char *argv[]) {
 
         // ===== Row B MID : runs total (large; the main score) =====
         snprintf(buf, sizeof(buf), "%d", s.runs);
-        draw_centered(font_score, kMidCx - 12, baseline_for_centre(font_score, 130),
+        draw_centered(font_score, kMidCx - 12, baseline_for_centre(font_score, 114),
                       c_amber, buf);
 
         // ===== Row B RIGHT : WKTS <count> =====
