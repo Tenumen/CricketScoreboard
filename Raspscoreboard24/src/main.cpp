@@ -210,26 +210,37 @@ int main(int argc, char *argv[]) {
     // Blit an RGBA pixel buffer onto the canvas with nearest-neighbour scaling.
     // Pixels with alpha < 128 are skipped (transparent). Sharp pixel edges are
     // preferable to interpolation when the destination is an LED grid.
+    // The image is fit (preserving aspect ratio) inside the dst_w × dst_h box
+    // and centred — so a non-square source isn't squashed when the box is square.
     auto draw_rgba_image = [&](const unsigned char *data, int src_w, int src_h,
                                int dst_x, int dst_y, int dst_w, int dst_h) {
-        for (int py = 0; py < dst_h; ++py) {
-            int sy = py * src_h / dst_h;
+        if (src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0) return;
+        int fit_w = dst_w, fit_h = dst_h;
+        if (src_w * dst_h > src_h * dst_w) {
+            fit_h = (dst_w * src_h) / src_w;
+        } else {
+            fit_w = (dst_h * src_w) / src_h;
+        }
+        const int ox = dst_x + (dst_w - fit_w) / 2;
+        const int oy = dst_y + (dst_h - fit_h) / 2;
+        for (int py = 0; py < fit_h; ++py) {
+            int sy = py * src_h / fit_h;
             const unsigned char *row = data + 4 * sy * src_w;
-            for (int px = 0; px < dst_w; ++px) {
-                int sx = px * src_w / dst_w;
+            for (int px = 0; px < fit_w; ++px) {
+                int sx = px * src_w / fit_w;
                 const unsigned char *p = row + 4 * sx;
                 if (p[3] < 128) continue;
-                grid.SetPixel(dst_x + px, dst_y + py, p[0], p[1], p[2]);
+                grid.SetPixel(ox + px, oy + py, p[0], p[1], p[2]);
             }
         }
     };
 
     // Load the club crest (RGBA). Path is relative to the binary's CWD on the Pi.
     int logo_w = 0, logo_h = 0, logo_channels = 0;
-    unsigned char *logo_data = stbi_load("assets/logo_64.png",
+    unsigned char *logo_data = stbi_load("assets/Improved_logo.png",
                                          &logo_w, &logo_h, &logo_channels, 4);
     if (!logo_data) {
-        fprintf(stderr, "Warning: failed to load logo 'assets/logo_64.png': %s\n",
+        fprintf(stderr, "Warning: failed to load logo 'assets/Improved_logo.png': %s\n",
                 stbi_failure_reason());
     }
 
