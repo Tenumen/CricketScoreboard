@@ -303,11 +303,11 @@ int main(int argc, char *argv[]) {
         // ===== Row B LEFT : "RUNS" label =====
         // Left-justified at x = kLeftCx - 50 = 14, same x as BAT 1 / BAT 2.
         draw_left(font_label_big, kLeftCx - 50,
-                  baseline_for_centre(font_label_big, 115), c_white, "RUNS");
+                  baseline_for_centre(font_label_big, 127), c_white, "RUNS");
 
         // ===== Row B MID : runs total (large; the main score) =====
         snprintf(buf, sizeof(buf), "%d", s.runs);
-        draw_centered(font_score, kMidCx - 12, baseline_for_centre(font_score, 118),
+        draw_centered(font_score, kMidCx - 12, baseline_for_centre(font_score, 130),
                       c_amber, buf);
 
         // ===== Row B RIGHT : WKTS <count> =====
@@ -322,12 +322,12 @@ int main(int argc, char *argv[]) {
                   baseline_for_centre(font_label_big, 163), c_white, "BAT 1");
         snprintf(buf, sizeof(buf), "%s%s",
                  s.bat1_name.c_str(), s.on_strike == 1 ? " *" : "");
-        draw_left(font_label, kLeftCx - 50, baseline_for_centre(font_label, 192),
+        draw_left(font_label, kLeftCx - 50, baseline_for_centre(font_label, 187),
                   c_cyan, buf);
 
         // ===== Row C MID : bat 1 score =====
         snprintf(buf, sizeof(buf), "%d", s.bat1_score);
-        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 182),
+        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 179),
                       c_white, buf);
 
         // ===== Row C RIGHT : OVERS <count> =====
@@ -347,7 +347,7 @@ int main(int argc, char *argv[]) {
 
         // ===== Row D MID : bat 2 score =====
         snprintf(buf, sizeof(buf), "%d", s.bat2_score);
-        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 241),
+        draw_centered(font_small_num, kMidCx - 12, baseline_for_centre(font_small_num, 236),
                       c_white, buf);
 
         // ===== Row D RIGHT : LAST INNS <runs> <wkts> =====
