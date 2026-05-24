@@ -225,6 +225,8 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
   button:hover:not(:disabled) { background:#2a2a2a; }
   button:disabled { opacity:0.4; cursor:not-allowed; }
   #btn-rollback { border-color:#844; }
+  button.danger { border-color:#a44; background:#2a1a1a; }
+  button.danger:hover:not(:disabled) { background:#3a1f1f; }
   .banner { padding: 8px 12px; border-radius:4px; margin-top:10px;
             background:#234; color:#cef; font-size:13px; }
   .banner.error { background:#422; color:#fcc; }
@@ -285,6 +287,7 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
 <div class="actions">
   <button id="btn-update">Update from git</button>
   <button id="btn-rollback" disabled>Roll back</button>
+  <button id="btn-shutdown" class="danger">Shut down Pi</button>
 </div>
 <div id="action-banner" class="banner hidden"></div>
 
@@ -393,6 +396,22 @@ document.getElementById('btn-rollback').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('btn-shutdown').addEventListener('click', async () => {
+  if (!confirm('Shut down the Pi?\n\nThe scoreboard will stop and the LED wall will go dark. '
+             + 'Power-cycle the Pi to bring it back.')) return;
+  try {
+    const r = await fetch('/api/shutdown', { method: 'POST' });
+    if (r.status === 202) {
+      showBanner('Shutdown started. The LED wall will go dark in ~10 s. '
+               + 'A session report email will be sent before power-off.');
+    } else {
+      showBanner(`Shutdown request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Shutdown request failed: ' + err.message, true);
+  }
+});
+
 refresh();
 setInterval(refresh, 2000);
 </script>
@@ -486,6 +505,18 @@ DebugServer::DebugServer(const SharedMatchState* state,
         }
         const std::string script = scripts_dir_ + "/rollback.sh";
         std::fprintf(stderr, "POST /api/rollback → spawning %s\n", script.c_str());
+        if (!SpawnDetachedScript(script)) {
+            res.status = 500;
+            res.set_content("{\"error\":\"fork failed\"}", "application/json");
+            return;
+        }
+        res.status = 202;
+        res.set_content("{\"started\":true}", "application/json");
+    });
+
+    server_->Post("/api/shutdown", [this](const httplib::Request&, httplib::Response& res) {
+        const std::string script = scripts_dir_ + "/shutdown_pi.sh";
+        std::fprintf(stderr, "POST /api/shutdown → spawning %s\n", script.c_str());
         if (!SpawnDetachedScript(script)) {
             res.status = 500;
             res.set_content("{\"error\":\"fork failed\"}", "application/json");

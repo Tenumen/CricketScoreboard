@@ -24,8 +24,11 @@ echo "→ creating $STATE_DIR"
 install -d -m 0755 "$STATE_DIR"
 
 # 2. Make scripts executable so the HTTP handler can spawn them via bash.
-echo "→ chmod +x scripts/*.sh"
-chmod +x "$REPO_DIR"/scripts/*.sh
+#    The .py mailer is invoked by systemd's ExecStopPost with an explicit
+#    python3 interpreter, so the +x is belt-and-braces (also lets the dry-run
+#    in setup_mailer_creds.md work without `python3` prefixing).
+echo "→ chmod +x scripts/*.sh scripts/*.py"
+chmod +x "$REPO_DIR"/scripts/*.sh "$REPO_DIR"/scripts/*.py
 
 # 3. Install the systemd unit. Patch WorkingDirectory/ExecStart if the repo
 #    isn't at /home/tenumen/scoreboard24 (the template default).

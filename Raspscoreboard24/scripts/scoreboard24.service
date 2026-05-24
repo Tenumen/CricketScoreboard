@@ -19,5 +19,14 @@ StandardError=journal
 # tree and finish cleanly.
 KillMode=process
 
+# Shutdown mailer: ExecStopPost runs after the main process exits regardless
+# of exit code, so it covers manual stop, crash, admin-console shutdown, and
+# OS poweroff. TimeoutStopSec gives the mailer's 20 s SMTP attempt a 45 s
+# enclosing budget. See scripts/setup_mailer_creds.md for the credstore
+# provisioning that backs LoadCredentialEncrypted=.
+LoadCredentialEncrypted=scoreboard24-mailer:/etc/credstore.encrypted/scoreboard24-mailer.cred
+ExecStopPost=/usr/bin/python3 /home/tenumen/scoreboard24/scripts/shutdown_mailer.py
+TimeoutStopSec=45s
+
 [Install]
 WantedBy=multi-user.target
