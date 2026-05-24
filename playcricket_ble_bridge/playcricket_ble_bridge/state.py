@@ -93,6 +93,15 @@ class MatchState:
     match_date: str = ""
     innings: List[Innings] = field(default_factory=lambda: [Innings(innings_number=1)])
 
+    # Monotonic per-ball / per-wicket counters consumed by the C++ scoreboard
+    # to trigger event splashes. Bumped from _h_cov / _h_lwk. The runs/wicket
+    # flag describe only the most recent ball (or wicket); older balls are
+    # not retained here.
+    last_ball_id:        int  = 0
+    last_ball_runs:      int  = 0
+    last_ball_is_wicket: bool = False
+    last_wicket_id:      int  = 0
+
 
 def _parse_overs(value: str) -> str:
     """Normalise the OVB value to 'overs.balls'. Bare integer means '.0'."""
@@ -141,6 +150,22 @@ def _parse_cov(value: str) -> tuple[int, int]:
     """Aggregate form of _parse_cov_balls: returns (balls, runs)."""
     balls_list = _parse_cov_balls(value)
     return (len(balls_list), sum(balls_list))
+
+
+def _parse_cov_balls_meta(value: str) -> list[tuple[int, bool]]:
+    """Per-ball (runs, is_wicket) parse of the COV value. Wicket balls map to
+    (0, True); everything else mirrors _parse_cov_balls but carries the flag."""
+    out: list[tuple[int, bool]] = []
+    for tok in value.strip().split():
+        if tok == ".":
+            out.append((0, False))
+        elif tok.isdigit():
+            out.append((int(tok), False))
+        elif tok.upper().startswith("W"):
+            out.append((0, True))
+        else:
+            out.append((0, False))
+    return out
 
 
 def _legal_balls_from_overs(overs: str) -> int:
@@ -269,8 +294,9 @@ def _h_cov(s: MatchState, value: str) -> bool:
     so this attribution is the only way to keep per-batter scores live.
     """
     inn = _current_innings(s)
-    balls_list = _parse_cov_balls(value)
-    balls      = len(balls_list)
+    balls_meta = _parse_cov_balls_meta(value)
+    balls_list = [r for r, _ in balls_meta]
+    balls      = len(balls_meta)
     runs       = sum(balls_list)
 
     if balls < inn._prev_cov_balls and inn._prev_cov_balls > 0:
@@ -280,10 +306,14 @@ def _h_cov(s: MatchState, value: str) -> bool:
 
     inn._prev_cov_balls = balls
 
-    # Credit any not-yet-attributed balls to the current striker.
+    # Credit any not-yet-attributed balls to the current striker, and update
+    # the per-ball event counters consumed by the scoreboard.
     striker_changed = False
     if balls > inn._cov_balls_attributed:
-        for ball_runs in balls_list[inn._cov_balls_attributed:balls]:
+        for ball_runs, ball_is_wicket in balls_meta[inn._cov_balls_attributed:balls]:
+            s.last_ball_id        += 1
+            s.last_ball_runs       = ball_runs
+            s.last_ball_is_wicket  = ball_is_wicket
             if ball_runs > 0:
                 inn.bat[inn._striker_idx].runs += ball_runs
                 striker_changed = True
@@ -447,6 +477,7 @@ def _h_lwk(s: MatchState, value: str) -> bool:
     # Last wicket: append/update a Fow entry for the most recent dismissal.
     if not inn.fow or inn.fow[-1].runs != team_score:
         inn.fow.append(Fow(runs=team_score, wickets=inn.wickets or len(inn.fow) + 1))
+        s.last_wicket_id += 1
         return True
     return False
 

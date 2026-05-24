@@ -38,7 +38,10 @@ COMMON_SRCS := \
     $(SRCDIR)/play_cricket_client.cpp \
     $(SRCDIR)/match_mapping.cpp \
     $(SRCDIR)/debug_server.cpp \
-    $(SRCDIR)/calibration.cpp
+    $(SRCDIR)/calibration.cpp \
+    $(SRCDIR)/effects/event_detect.cpp \
+    $(SRCDIR)/effects/event_splash.cpp \
+    $(SRCDIR)/effects/fireworks.cpp
 
 ifeq ($(RENDER_BACKEND),hub75)
   TARGET   := scoreboard24

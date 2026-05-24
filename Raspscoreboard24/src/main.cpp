@@ -2,6 +2,9 @@
 
 #include "calibration.h"
 #include "debug_server.h"
+#include "effects/event_detect.h"
+#include "effects/event_splash.h"
+#include "effects/fireworks.h"
 #include "grid_canvas.h"
 #include "match_state.h"
 #include "panel_layout.h"
@@ -21,15 +24,20 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 
 using rgb_matrix::Color;
 using rgb_matrix::Font;
 using rgb_matrix::DrawText;
 using cricketboard::CreateDisplay;
 using cricketboard::DebugServer;
+using cricketboard::DetectEvent;
 using cricketboard::DisplayOptions;
+using cricketboard::DrawEventSplash;
+using cricketboard::Fireworks;
 using cricketboard::GridCanvas;
 using cricketboard::IDisplay;
+using cricketboard::Interlude;
 using cricketboard::MatchPhase;
 using cricketboard::MatchState;
 using cricketboard::PollConfig;
@@ -69,6 +77,33 @@ static bool ExtractCalibrateFlag(int *argc, char **argv,
     return found;
 }
 
+// --demo-splash=<wicket|four|six|fireworks>: bypass live state, force the
+// named interlude, exit after a fixed budget. For visual verification on
+// the sim backend without a live BLE bridge.
+static bool ExtractDemoSplashFlag(int *argc, char **argv, Interlude *out) {
+    bool found = false;
+    int write = 1;
+    for (int read = 1; read < *argc; ++read) {
+        const char *a = argv[read];
+        if (strncmp(a, "--demo-splash=", 14) == 0) {
+            const char *kind = a + 14;
+            if      (strcmp(kind, "wicket")    == 0) *out = Interlude::Wicket;
+            else if (strcmp(kind, "four")      == 0) *out = Interlude::Four;
+            else if (strcmp(kind, "six")       == 0) *out = Interlude::Six;
+            else if (strcmp(kind, "fireworks") == 0) *out = Interlude::PostMatchFireworks;
+            else {
+                fprintf(stderr, "Unknown --demo-splash kind '%s'\n", kind);
+                continue;
+            }
+            found = true;
+            continue;
+        }
+        argv[write++] = argv[read];
+    }
+    *argc = write;
+    return found;
+}
+
 // --config <path>  or  --config=<path>
 static bool ExtractConfigFlag(int *argc, char **argv, std::string *path_out) {
     bool found = false;
@@ -93,9 +128,42 @@ static bool ExtractConfigFlag(int *argc, char **argv, std::string *path_out) {
     return found;
 }
 
+// One-shot measurement: load a BDF and print the pixel width of each splash
+// label, then exit. Lets us tune the impact-font pixel size without a display.
+static int MeasureImpactFont(const char *path) {
+    Font f;
+    if (!f.LoadFont(path)) {
+        fprintf(stderr, "Could not load font '%s'\n", path);
+        return 2;
+    }
+    auto text_width = [&](const char *s) {
+        int w = 0;
+        for (const char *p = s; *p; ++p) w += f.CharacterWidth(static_cast<uint32_t>(*p));
+        return w;
+    };
+    printf("font:    %s\n", path);
+    printf("height:  %d  baseline: %d\n", f.height(), f.baseline());
+    printf("Wicket!  %d px\n", text_width("Wicket!"));
+    printf("Four!    %d px\n", text_width("Four!"));
+    printf("Six!     %d px\n", text_width("Six!"));
+    printf("(screen width = 384 px; target Wicket! ∈ [340, 376] px)\n");
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
+    // --measure-impact-font=<path> short-circuits everything: load the font,
+    // print text widths for the three splash labels, exit. No display needed.
+    for (int i = 1; i < argc; ++i) {
+        if (strncmp(argv[i], "--measure-impact-font=", 22) == 0) {
+            return MeasureImpactFont(argv[i] + 22);
+        }
+    }
+
     cricketboard::CalibrationMode cal_mode = cricketboard::CalibrationMode::Sequential;
     const bool calibrate = ExtractCalibrateFlag(&argc, argv, &cal_mode);
+
+    Interlude demo_splash = Interlude::None;
+    const bool demo_mode = ExtractDemoSplashFlag(&argc, argv, &demo_splash);
 
     std::string config_path = "config.json";
     ExtractConfigFlag(&argc, argv, &config_path);
@@ -151,6 +219,10 @@ int main(int argc, char *argv[]) {
     Font font_small_num;  // small — every other number on the board
     if (!font_small_num.LoadFont("fonts/liberation-mono-bold-35.bdf"))
         fprintf(stderr, "Warning: could not load font 'fonts/liberation-mono-bold-35.bdf'\n");
+
+    Font font_impact;  // very large — Wicket! / Four! / Six! splashes (~50 px/char)
+    if (!font_impact.LoadFont("fonts/liberation-mono-bold-86.bdf"))
+        fprintf(stderr, "Warning: could not load font 'fonts/liberation-mono-bold-86.bdf'\n");
 
     GridCanvas grid(display->current_back_buffer());
 
@@ -416,9 +488,10 @@ int main(int argc, char *argv[]) {
     //   Pure centre  (y=128): inn1 summary in 10x20 white.
     //   Row D centre (y=224): inn2 summary in 10x20 white.
     // Symmetric 96 px between anchors.
-    auto draw_post_match = [&](const MatchState &s) {
-        grid.Fill(0, 0, 0);
-
+    // Text-only portion of the POST_MATCH splash. Does NOT clear -- callers
+    // either fill black first (normal path) or render fireworks behind first
+    // (PostMatchFireworks interlude).
+    auto draw_post_match_text = [&](const MatchState &s) {
         if (!s.result_description.empty()) {
             constexpr int kMaxHeadlineWidth = 380;
             const char *result_text = s.result_description.c_str();
@@ -443,6 +516,11 @@ int main(int argc, char *argv[]) {
         draw_innings(224, s.inn2);
     };
 
+    auto draw_post_match = [&](const MatchState &s) {
+        grid.Fill(0, 0, 0);
+        draw_post_match_text(s);
+    };
+
     // Idle screen for NO_MATCH. Keeps the wall visibly alive — logo centred,
     // no text. Full layout will be a follow-up.
     auto draw_idle = [&]() {
@@ -464,6 +542,67 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    Fireworks fireworks;
+
+    // Render one frame for the currently-active interlude (or fall back to
+    // the static phase view if none).
+    auto draw_frame = [&](const MatchState &s, Interlude active, float dt) {
+        switch (active) {
+            case Interlude::Wicket:
+            case Interlude::Four:
+            case Interlude::Six:
+                grid.Fill(0, 0, 0);
+                DrawEventSplash(grid, font_impact, active);
+                return;
+            case Interlude::PostMatchFireworks:
+                grid.Fill(0, 0, 0);
+                fireworks.StepAndDraw(grid, dt);
+                draw_post_match_text(s);
+                return;
+            case Interlude::None:
+            default:
+                draw_phase(s);
+                return;
+        }
+    };
+
+    // ---------- Demo-splash short-circuit ----------
+    if (demo_mode) {
+        printf("Demo mode: rendering %s for %s seconds. Ctrl+C to exit.\n",
+               demo_splash == Interlude::Wicket             ? "Wicket!"   :
+               demo_splash == Interlude::Four               ? "Four!"     :
+               demo_splash == Interlude::Six                ? "Six!"      :
+               demo_splash == Interlude::PostMatchFireworks ? "fireworks" : "?",
+               demo_splash == Interlude::PostMatchFireworks ? "30" : "12");
+        MatchState fake;
+        fake.phase = (demo_splash == Interlude::PostMatchFireworks)
+                       ? MatchPhase::POST_MATCH : MatchPhase::NO_MATCH;
+        fake.result_description = "DEMO -- result_description";
+        fake.inn1.valid = false;
+        fake.inn2.valid = false;
+
+        const auto start = std::chrono::steady_clock::now();
+        auto last_anim   = start;
+        const float budget = (demo_splash == Interlude::PostMatchFireworks) ? 30.f : 12.f;
+        while (!interrupt_received) {
+            const auto now = std::chrono::steady_clock::now();
+            const float dt = std::chrono::duration<float>(now - last_anim).count();
+            last_anim = now;
+
+            draw_frame(fake, demo_splash, dt);
+            display->swap_on_vsync();
+            grid.set_backing(display->current_back_buffer());
+
+            const float elapsed = std::chrono::duration<float>(now - start).count();
+            if (elapsed > budget) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        display->clear();
+        if (logo_data) stbi_image_free(logo_data);
+        printf("\nDemo done.\n");
+        return 0;
+    }
+
     // ---------- Live match plumbing ----------
     SharedMatchState shared_state;
     PollLoop poller(cfg, &shared_state, &interrupt_received);
@@ -483,20 +622,58 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Render loop: redraw on every state-generation change. ~0ULL forces the
-    // first iteration to paint whatever phase is current (likely NO_MATCH for
-    // a tick or two until the poll thread publishes).
-    uint64_t last_gen = static_cast<uint64_t>(-1);
-    while (!interrupt_received) {
-        MatchState s = shared_state.wait_for_update(
-            last_gen, std::chrono::milliseconds(500), interrupt_received);
-        if (interrupt_received) break;
-        if (s.generation == last_gen) continue;   // wait timed out, nothing changed
+    // Render loop. Two pacing modes:
+    //   Idle (no interlude active): block on the state-change condvar with a
+    //     500 ms wakeup, redraw only on generation change. Same idle-CPU
+    //     behaviour as before.
+    //   Animating: short 20 ms timeout so fireworks/splashes advance at ~50 fps
+    //     even while state is static.
+    uint64_t   last_gen = static_cast<uint64_t>(-1);
+    MatchState prev;                                   // for DetectEvent
+    Interlude  active = Interlude::None;
+    auto       active_start = std::chrono::steady_clock::now();
+    auto       last_anim    = active_start;
 
-        draw_phase(s);
+    while (!interrupt_received) {
+        const auto timeout = (active != Interlude::None)
+                               ? std::chrono::milliseconds(20)
+                               : std::chrono::milliseconds(500);
+        MatchState s = shared_state.wait_for_update(last_gen, timeout, interrupt_received);
+        if (interrupt_received) break;
+
+        const bool state_changed = (s.generation != last_gen);
+        if (state_changed) {
+            const Interlude triggered = DetectEvent(prev, s);
+            if (triggered != Interlude::None) {
+                // Cancel-and-replace: newer event wins, timer resets.
+                active = triggered;
+                active_start = std::chrono::steady_clock::now();
+            }
+            prev = s;
+        }
+
+        // Auto-expire short splashes after 10 s. PostMatchFireworks runs as
+        // long as we're in POST_MATCH; it clears when phase changes back.
+        if (active == Interlude::Wicket || active == Interlude::Four || active == Interlude::Six) {
+            const auto elapsed = std::chrono::steady_clock::now() - active_start;
+            if (elapsed >= std::chrono::seconds(10)) {
+                active = Interlude::None;
+            }
+        } else if (active == Interlude::PostMatchFireworks && s.phase != MatchPhase::POST_MATCH) {
+            active = Interlude::None;
+        }
+
+        const bool animating = (active != Interlude::None);
+        if (!state_changed && !animating) continue;    // preserve idle-cheap path
+
+        const auto now = std::chrono::steady_clock::now();
+        const float dt = std::chrono::duration<float>(now - last_anim).count();
+        last_anim = now;
+
+        draw_frame(s, active, dt);
         display->swap_on_vsync();
         grid.set_backing(display->current_back_buffer());
-        draw_phase(s);                            // mirror into the new back buffer
+        draw_frame(s, active, dt);                     // mirror into new back buffer
         last_gen = s.generation;
     }
 

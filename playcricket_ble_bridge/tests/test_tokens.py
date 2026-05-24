@@ -332,3 +332,63 @@ def test_result_summary_envelope_shape():
     assert isinstance(env["result_summary"], list)
     assert env["result_summary"][0]["id"] == 9000001
     assert env["result_summary"][0]["home_team_name"] == "Aston on Trent"
+
+
+# ---------- per-ball event counters (consumed by scoreboard splashes) --------
+
+def test_last_ball_id_increments_per_ball():
+    acc = MatchAccumulator()
+    acc.apply("COV", "1 ")
+    assert acc.snapshot().last_ball_id == 1
+    assert acc.snapshot().last_ball_runs == 1
+    assert acc.snapshot().last_ball_is_wicket is False
+
+    acc.apply("COV", "1 4 ")
+    assert acc.snapshot().last_ball_id == 2
+    assert acc.snapshot().last_ball_runs == 4
+
+    acc.apply("COV", "1 4 6 ")
+    assert acc.snapshot().last_ball_id == 3
+    assert acc.snapshot().last_ball_runs == 6
+
+
+def test_last_ball_flags_wicket_on_cov_w():
+    acc = MatchAccumulator()
+    acc.apply("COV", "1 W ")
+    snap = acc.snapshot()
+    assert snap.last_ball_id == 2
+    assert snap.last_ball_runs == 0
+    assert snap.last_ball_is_wicket is True
+
+
+def test_last_ball_id_survives_over_rollover():
+    acc = MatchAccumulator()
+    acc.apply("COV", "1 1 1 1 1 1 ")     # six balls — finish over
+    acc.apply("COV", "4 ")                # new over starts
+    snap = acc.snapshot()
+    assert snap.last_ball_id == 7
+    assert snap.last_ball_runs == 4
+
+
+def test_last_wicket_id_increments_on_lwk():
+    acc = MatchAccumulator()
+    acc.apply("BTS", "10/1")
+    acc.apply("LWK", "10")
+    assert acc.snapshot().last_wicket_id == 1
+    acc.apply("BTS", "25/2")
+    acc.apply("LWK", "25")
+    assert acc.snapshot().last_wicket_id == 2
+
+
+def test_match_detail_envelope_carries_last_event():
+    acc = MatchAccumulator()
+    acc.apply("COV", "4 ")
+    acc.apply("LWK", "4")
+    env = serializers.match_detail_envelope(acc.snapshot())
+    le = env["match_details"][0]["last_event"]
+    assert le == {
+        "ball_id":        1,
+        "ball_runs":      4,
+        "ball_is_wicket": False,
+        "wicket_id":      1,
+    }

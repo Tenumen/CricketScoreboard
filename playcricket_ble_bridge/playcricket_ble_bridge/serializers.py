@@ -136,6 +136,12 @@ def match_detail_to_dict(m: S.MatchState) -> dict:
             {"away_team": []},
         ],
         "innings": [_innings_to_dict(i) for i in m.innings],
+        "last_event": {
+            "ball_id":        m.last_ball_id,
+            "ball_runs":      m.last_ball_runs,
+            "ball_is_wicket": m.last_ball_is_wicket,
+            "wicket_id":      m.last_wicket_id,
+        },
     })
     return base
 

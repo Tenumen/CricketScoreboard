@@ -36,6 +36,28 @@ std::string ToStr(const json& v) {
     return std::string();
 }
 
+bool ToBool(const json& v) {
+    if (v.is_boolean()) return v.get<bool>();
+    if (v.is_number())  return v.get<double>() != 0.0;
+    if (v.is_string()) {
+        const std::string& s = v.get_ref<const std::string&>();
+        return s == "true" || s == "1";
+    }
+    return false;
+}
+
+uint64_t ToU64(const json& v) {
+    if (v.is_number_integer())  return static_cast<uint64_t>(v.get<long long>());
+    if (v.is_number_unsigned()) return v.get<uint64_t>();
+    if (v.is_number_float())    return static_cast<uint64_t>(v.get<double>());
+    if (v.is_string()) {
+        const std::string& s = v.get_ref<const std::string&>();
+        if (s.empty()) return 0;
+        try { return std::stoull(s); } catch (...) { return 0; }
+    }
+    return 0;
+}
+
 const json& Field(const json& obj, const char* key) {
     static const json kNull = json();
     auto it = obj.find(key);
@@ -98,6 +120,17 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
     st.away_team_name = ToStr(Field(m, "away_team_name"));
     st.home_team      = st.home_team_name;
     st.opponent       = st.away_team_name;
+
+    // Per-ball / per-wicket counters. Absent on un-upgraded bridges -> 0.
+    {
+        const json& le = Field(m, "last_event");
+        if (le.is_object()) {
+            st.last_ball_id        = ToU64(Field(le, "ball_id"));
+            st.last_ball_runs      = ToInt(Field(le, "ball_runs"));
+            st.last_ball_is_wicket = ToBool(Field(le, "ball_is_wicket"));
+            st.last_wicket_id      = ToU64(Field(le, "wicket_id"));
+        }
+    }
 
     // Phase classification.
     const std::string result_field      = ToStr(Field(m, "result"));

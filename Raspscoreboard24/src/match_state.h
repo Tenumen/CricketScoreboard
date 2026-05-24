@@ -59,6 +59,14 @@ struct MatchState {
     InningsSummary inn1;
     InningsSummary inn2;
 
+    // Per-ball / per-wicket event counters mirrored from the bridge.
+    // Monotonic; consumed by the renderer's event_detect to fire splashes.
+    // Safe defaults so a bridge that doesn't publish last_event still works.
+    uint64_t last_ball_id        = 0;
+    int      last_ball_runs      = 0;
+    bool     last_ball_is_wicket = false;
+    uint64_t last_wicket_id      = 0;
+
     // Bumped on every successful update from the poll thread. The render
     // thread compares the snapshot it last drew against the live value to
     // decide whether to redraw.
