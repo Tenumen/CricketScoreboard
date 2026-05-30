@@ -27,7 +27,11 @@ CXX       := g++
 # To force a fresh hash without touching source: `touch src/debug_server.cpp`.
 BUILD_GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
-CXX_BASE  := -std=c++17 -O2 -Wall -Wextra -I$(SRCDIR) -I$(THIRD_DIR) \
+# -MMD -MP makes g++ emit .d files alongside each .o; -include'd below so any
+# header change forces a recompile of every TU that includes it. Prevents the
+# stale-.o ABI-skew class of bug (e.g. b9d9626 inserted fields into MatchState
+# and the old poll_loop.o kept writing to the pre-insert offsets).
+CXX_BASE  := -std=c++17 -O2 -Wall -Wextra -MMD -MP -I$(SRCDIR) -I$(THIRD_DIR) \
              -DBUILD_GIT_HASH=\"$(BUILD_GIT_HASH)\"
 
 # ---------- per-backend source/flag selection ----------
@@ -80,6 +84,8 @@ endif
 ALL_SRCS := $(COMMON_SRCS) $(BACKEND_SRCS)
 # Each source file becomes build/<backend>/path/to/file.o
 ALL_OBJS := $(patsubst $(SRCDIR)/%.cpp,$(BUILDDIR)/%.o,$(ALL_SRCS)) $(BACKEND_OBJS_EXTRA)
+# Auto-generated header-dependency files (one per .o, from -MMD -MP).
+DEPS     := $(ALL_OBJS:.o=.d)
 
 .PHONY: all clean clean-all lib all-backends help
 
@@ -128,3 +134,8 @@ clean-all:
 	rm -rf build
 	find $(SRCDIR) -name '*.o' -delete 2>/dev/null || true
 	-$(MAKE) -C $(RGB_LIB_DIR)/lib clean
+
+# Pull in auto-generated header deps. The dash silences first-build errors
+# (no .d files exist yet); after the first compile they exist and changes to
+# any included header trigger a recompile.
+-include $(DEPS)
