@@ -22,7 +22,12 @@ function applyZoom() {
 zoomSel.addEventListener('change', applyZoom);
 applyZoom();
 
-let lastFrameNo = -1;
+// Dedup on the server-side receive timestamp (monotonic across sim-binary
+// restarts). X-Frame-Number alone is unsafe — the C++ FrameEmitter resets
+// it to 1 on every process startup, so a fresh `--demo-splash=four` after a
+// `--demo-splash=wicket` ends up with the same frameNo=1 and would never
+// repaint if we keyed off it.
+let lastReceivedAtMs = -1;
 let pendingImg = null;
 
 async function poll() {
@@ -34,7 +39,8 @@ async function poll() {
     }
     const frameNo = parseInt(res.headers.get('X-Frame-Number') || '0', 10);
     const ageMs = parseInt(res.headers.get('X-Frame-Age-Ms') || '-1', 10);
-    if (frameNo === lastFrameNo && lastFrameNo > 0) {
+    const receivedAtMs = parseInt(res.headers.get('X-Frame-Received-At-Ms') || '0', 10);
+    if (receivedAtMs === lastReceivedAtMs && lastReceivedAtMs > 0) {
       status.textContent = `frame #${frameNo} (${(ageMs / 1000).toFixed(1)}s old)`;
       return;
     }
@@ -47,7 +53,7 @@ async function poll() {
       URL.revokeObjectURL(url);
       if (frameNo > 0) {
         status.textContent = `frame #${frameNo} (live)`;
-        lastFrameNo = frameNo;
+        lastReceivedAtMs = receivedAtMs;
       } else {
         status.textContent = 'waiting for first frame…';
       }

@@ -65,6 +65,7 @@ def frame_serve():
         buf = ctx.frame_bytes
         w, h = ctx.frame_width, ctx.frame_height
         frame_no = ctx.frame_no
+        received_at = ctx.frame_received_at if buf else 0
         age_ms = int((time.time() - ctx.frame_received_at) * 1000) if buf else -1
 
     if buf is None:
@@ -93,6 +94,7 @@ def frame_serve():
     resp = send_file(out, mimetype="image/png", max_age=0)
     resp.headers["X-Frame-Number"] = str(frame_no)
     resp.headers["X-Frame-Age-Ms"] = str(age_ms)
+    resp.headers["X-Frame-Received-At-Ms"] = str(int(received_at * 1000))
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
