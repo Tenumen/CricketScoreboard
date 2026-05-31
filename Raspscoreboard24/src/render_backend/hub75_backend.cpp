@@ -81,7 +81,7 @@ std::unique_ptr<IDisplay> CreateDisplay(int *argc, char ***argv,
     matrix_options.brightness   = opts.brightness;
     matrix_options.pwm_bits     = opts.pwm_bits;
     matrix_options.multiplexing = opts.multiplexing;
-    matrix_options.show_refresh_rate     = true;
+    matrix_options.show_refresh_rate     = false;
     matrix_options.limit_refresh_rate_hz = opts.limit_refresh_rate_hz;
 
     RuntimeOptions runtime_options;

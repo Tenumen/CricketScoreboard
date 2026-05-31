@@ -73,6 +73,46 @@ struct MatchState {
     uint64_t generation = 0;
 };
 
+// Content equality, ignoring `generation`. Used to suppress redundant updates
+// (and the redraw they trigger) when a poll returns data identical to the last.
+inline bool operator==(const InningsSummary& a, const InningsSummary& b) {
+    return a.team_name == b.team_name && a.runs == b.runs && a.wkts == b.wkts &&
+           a.overs == b.overs && a.valid == b.valid;
+}
+
+// True when every displayable field of `a` and `b` matches. Compares ALL fields
+// except `generation` — including the per-ball/per-wicket event counters, so a
+// genuine ball or wicket is never deduped away and splash detection still fires.
+inline bool SameContent(const MatchState& a, const MatchState& b) {
+    return a.phase == b.phase &&
+           a.home_club_name == b.home_club_name &&
+           a.home_team_name == b.home_team_name &&
+           a.away_club_name == b.away_club_name &&
+           a.away_team_name == b.away_team_name &&
+           a.home_team == b.home_team &&
+           a.opponent == b.opponent &&
+           a.chasing == b.chasing &&
+           a.target == b.target &&
+           a.runs == b.runs &&
+           a.wkts == b.wkts &&
+           a.overs == b.overs &&
+           a.bat1_name == b.bat1_name &&
+           a.bat1_score == b.bat1_score &&
+           a.bat2_name == b.bat2_name &&
+           a.bat2_score == b.bat2_score &&
+           a.on_strike == b.on_strike &&
+           a.last_inn_runs == b.last_inn_runs &&
+           a.last_inn_wkts == b.last_inn_wkts &&
+           a.total_extras == b.total_extras &&
+           a.result_description == b.result_description &&
+           a.inn1 == b.inn1 &&
+           a.inn2 == b.inn2 &&
+           a.last_ball_id == b.last_ball_id &&
+           a.last_ball_runs == b.last_ball_runs &&
+           a.last_ball_is_wicket == b.last_ball_is_wicket &&
+           a.last_wicket_id == b.last_wicket_id;
+}
+
 // Thread-safe holder. The poll thread calls update(), which copies in the new
 // state, bumps generation, and notifies waiters. The render thread waits on
 // the condvar (with a timeout for SIGTERM responsiveness) and then copies the
@@ -83,6 +123,7 @@ public:
     // with a freshly-bumped value) and wake any waiter.
     void update(const MatchState& s) {
         std::lock_guard<std::mutex> lk(mutex_);
+        if (SameContent(state_, s)) return;   // identical data -> no redraw
         state_ = s;
         state_.generation = ++generation_counter_;
         cv_.notify_all();
