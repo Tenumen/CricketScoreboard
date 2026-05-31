@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <thread>
@@ -174,7 +175,7 @@ int main(int argc, char *argv[]) {
     PollConfig cfg = cricketboard::LoadConfig(config_path);
 
     DisplayOptions display_opts;
-    display_opts.brightness            = 50;
+    display_opts.brightness            = 100;
     display_opts.pwm_bits              = 6;
     display_opts.gpio_slowdown         = 3;
     display_opts.limit_refresh_rate_hz = 120;
@@ -223,6 +224,23 @@ int main(int argc, char *argv[]) {
     Font font_impact;  // very large — Wicket! / Four! / Six! splashes (~50 px/char)
     if (!font_impact.LoadFont("fonts/liberation-mono-bold-86.bdf"))
         fprintf(stderr, "Warning: could not load font 'fonts/liberation-mono-bold-86.bdf'\n");
+
+    // Big "ball-by-ball" layout font ladder. Generated with
+    //   otf2bdf -p N -r 72 LiberationMono-Bold.ttf -o fonts/liberation-mono-bold-N.bdf
+    // Used by best_fit_font() to maximise each number against its cell.
+    Font font_p50, font_p70, font_p90, font_p110, font_p130;
+    {
+        struct { Font *f; const char *path; } ladder[] = {
+            {&font_p50,  "fonts/liberation-mono-bold-50.bdf"},
+            {&font_p70,  "fonts/liberation-mono-bold-70.bdf"},
+            {&font_p90,  "fonts/liberation-mono-bold-90.bdf"},
+            {&font_p110, "fonts/liberation-mono-bold-110.bdf"},
+            {&font_p130, "fonts/liberation-mono-bold-130.bdf"},
+        };
+        for (auto &e : ladder)
+            if (!e.f->LoadFont(e.path))
+                fprintf(stderr, "Warning: could not load font '%s'\n", e.path);
+    }
 
     GridCanvas grid(display->current_back_buffer());
 
@@ -278,6 +296,31 @@ int main(int argc, char *argv[]) {
             grid.SetPixel(x,         y + dy,     col.r, col.g, col.b);
             grid.SetPixel(x + w - 1, y + dy,     col.r, col.g, col.b);
         }
+    };
+    // Right-align text so its right edge sits at x_right.
+    auto draw_right = [&](const Font &f, int x_right, int y_baseline,
+                          const Color &col, const char *s) {
+        DrawText(&grid, f, x_right - text_width(f, s), y_baseline, col, nullptr, s, 0);
+    };
+    // Pick the largest font (candidates ordered LARGEST → smallest) whose
+    // rendering of `s` fits inside box_w × box_h. Falls back to the smallest
+    // candidate if none fit. Used by the big "ball-by-ball" layout to maximise
+    // each number against its cell regardless of digit count.
+    auto best_fit_font = [&](std::initializer_list<const Font *> fonts,
+                             const char *s, int box_w, int box_h) -> const Font & {
+        const Font *fallback = *fonts.begin();
+        for (const Font *f : fonts) {
+            fallback = f;
+            if (text_width(*f, s) <= box_w && f->height() <= box_h) return *f;
+        }
+        return *fallback;
+    };
+    // Drop trailing characters until `s` fits within max_w at font `f`.
+    auto truncate_to_width = [&](const Font &f, const std::string &s,
+                                 int max_w) -> std::string {
+        std::string out = s;
+        while (!out.empty() && text_width(f, out.c_str()) > max_w) out.pop_back();
+        return out;
     };
 
     // Blit an RGBA pixel buffer onto the canvas with nearest-neighbour scaling.
@@ -441,6 +484,95 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    // Draw a right-aligned label whose right edge sits 8 px left of a number's
+    // left edge, choosing the longest variant (ordered longest → shortest) that
+    // still starts at x >= 192 — i.e. that doesn't overlap the RUNS digits in
+    // cols 1-3 (the "check for clash with the runs digits" requirement). If even
+    // the shortest variant would cross the guard, it is clamped to x = 192.
+    auto draw_capped_label = [&](int number_left, int centre_y, const Color &col,
+                                 std::initializer_list<const char *> variants) {
+        constexpr int gap = 8;
+        constexpr int kRunsRightGuard = 192;
+        const int right = number_left - gap;
+        const char *chosen = *variants.begin();
+        for (const char *v : variants) {
+            chosen = v;
+            if (right - text_width(font_label, v) >= kRunsRightGuard) break;
+        }
+        int x = right - text_width(font_label, chosen);
+        if (x < kRunsRightGuard) x = kRunsRightGuard;
+        draw_left(font_label, x, baseline_for_centre(font_label, centre_y), col, chosen);
+    };
+
+    // ---------- Big "ball-by-ball" layout (default IN_MATCH view) ----------
+    // Maximised for boundary readability. Per the 2026-05-31 layout spec:
+    //   RUNS  : cols 1-3, rows A-B  (0,0,192,128)    — big number, no label
+    //   WKTS  : cols 5-6, top half  (256,0,128,96)   — big number + left label
+    //   OVERS : cols 5-6, bot half  (256,96,128,96)  — big number + left label
+    //   B1/B2 : bottom rows C-D, cols 1-4 (0,128,256,64 each) — label, name, score
+    // No logo, team names, TO WIN or LAST INNS — those live only in the classic
+    // draw_scoreboard() above, which is preserved behind kUseBigLayout.
+    auto draw_scoreboard_big = [&](const MatchState &s) {
+        grid.Fill(0, 0, 0);
+
+        // ===== RUNS : cols 1-3, rows A-B (192 x 128) =====
+        snprintf(buf, sizeof(buf), "%d", s.runs);
+        {
+            const Font &f = best_fit_font({&font_p130, &font_p110, &font_p90, &font_p70},
+                                          buf, 180, 116);
+            draw_centered(f, 96, baseline_for_centre(f, 64), c_amber, buf);
+        }
+
+        // ===== WKTS : cols 5-6, top half (256,0,128,96) =====
+        snprintf(buf, sizeof(buf), "%d", s.wkts);
+        {
+            const Font &f = best_fit_font({&font_p90, &font_p70, &font_p50}, buf, 120, 96);
+            const int x_right  = 380;
+            const int num_left = x_right - text_width(f, buf);
+            draw_right(f, x_right, baseline_for_centre(f, 48), c_red, buf);
+            draw_capped_label(num_left, 48, c_white, {"WKTS", "WKT", "W"});
+        }
+
+        // ===== OVERS : cols 5-6, bottom half (256,96,128,96) =====
+        {
+            const char *overs_str = s.overs.empty() ? "-" : s.overs.c_str();
+            const Font &f = best_fit_font({&font_p70, &font_p50, &font_small_num},
+                                          overs_str, 128, 96);
+            const int x_right  = 380;
+            const int num_left = x_right - text_width(f, overs_str);
+            draw_right(f, x_right, baseline_for_centre(f, 144), c_green, overs_str);
+            draw_capped_label(num_left, 144, c_white, {"OVERS", "OVR", "OV"});
+        }
+
+        // ===== Batters : bottom rows C-D, cols 1-4 (B1 over B2) =====
+        auto draw_batter = [&](int band_centre_y, const char *label,
+                               const std::string &name, int score, bool on_strike) {
+            // Label (B1 / B2) hard left.
+            draw_left(font_label_big, 4, baseline_for_centre(font_label_big, band_centre_y),
+                      c_white, label);
+            // Score: right-aligned, maximised for the 64 px band. Kept within
+            // cols 1-3 (right edge 188) so it never reaches the OVERS/WKTS labels
+            // that sit in col 4 (x >= 192).
+            snprintf(buf, sizeof(buf), "%d", score);
+            const Font &sf = best_fit_font({&font_score, &font_p50, &font_small_num},
+                                           buf, 96, 60);
+            const int score_right = 188;
+            const int score_left  = score_right - text_width(sf, buf);
+            draw_right(sf, score_right, baseline_for_centre(sf, band_centre_y), c_white, buf);
+            // Name (+ * on strike), truncated to the gap between label and score.
+            std::string nm = name + (on_strike ? " *" : "");
+            const int name_x   = 44;
+            const int name_max = (score_left - 8) - name_x;
+            if (!nm.empty() && name_max > 0) {
+                nm = truncate_to_width(font_label, nm, name_max);
+                draw_left(font_label, name_x, baseline_for_centre(font_label, band_centre_y),
+                          c_cyan, nm.c_str());
+            }
+        };
+        draw_batter(160, "B1", s.bat1_name, s.bat1_score, s.on_strike == 1);
+        draw_batter(224, "B2", s.bat2_name, s.bat2_score, s.on_strike == 2);
+    };
+
     // Pre-match splash A. Per plan (2026-05-17):
     //   Home block: vertical-centred on the A/B boundary (y=64)
     //   VS:         pure canvas centre (192, 128), 60pt
@@ -533,10 +665,18 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    // Flip to false to restore the classic detailed IN_MATCH layout
+    // (logo, team names, TO WIN, LAST INNS). The classic draw_scoreboard()
+    // is kept intact so reverting is a one-line change + rebuild.
+    constexpr bool kUseBigLayout = true;
+
     auto draw_phase = [&](const MatchState &s) {
         switch (s.phase) {
             case MatchPhase::PRE_MATCH:  draw_pre_match(s);  break;
-            case MatchPhase::IN_MATCH:   draw_scoreboard(s); break;
+            case MatchPhase::IN_MATCH:
+                if (kUseBigLayout) draw_scoreboard_big(s);
+                else               draw_scoreboard(s);
+                break;
             case MatchPhase::POST_MATCH: draw_post_match(s); break;
             case MatchPhase::NO_MATCH:   draw_idle();        break;
         }

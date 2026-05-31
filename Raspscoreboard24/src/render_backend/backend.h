@@ -21,7 +21,7 @@ namespace cricketboard {
 
 struct DisplayOptions {
     // Common — set by main(), used by the hub75 backend; ignored by headless.
-    int brightness            = 50;
+    int brightness            = 100;
     int pwm_bits              = 6;
     int gpio_slowdown         = 3;
     int limit_refresh_rate_hz = 120;
