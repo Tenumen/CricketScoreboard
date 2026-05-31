@@ -617,7 +617,7 @@ int main(int argc, char *argv[]) {
         } else {
             debug_server = std::make_unique<DebugServer>(
                 &shared_state, cfg.debug_server_password, cfg.debug_server_port,
-                cfg.repo_dir, cfg.scripts_dir);
+                cfg.repo_dir, cfg.scripts_dir, cfg.api_base_url);
             debug_server->start();
         }
     }

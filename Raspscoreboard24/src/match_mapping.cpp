@@ -77,10 +77,29 @@ bool BatterStillAtCrease(const std::string& how_out_raw) {
     return h.empty() || h == "not out";
 }
 
+// Convert "X.Y" overs notation to integer legal balls. Mirrors the bridge's
+// _legal_balls_from_overs so the two sides agree on what counts as bowled.
+// A bare integer means ".0"; anything unparseable is treated as 0 balls.
+int LegalBallsFromOvers(const std::string& overs) {
+    if (overs.empty()) return 0;
+    try {
+        const auto dot = overs.find('.');
+        if (dot == std::string::npos) return std::stoi(overs) * 6;
+        const int o = std::stoi(overs.substr(0, dot));
+        const std::string b = overs.substr(dot + 1);
+        return o * 6 + (b.empty() ? 0 : std::stoi(b));
+    } catch (...) {
+        return 0;
+    }
+}
+
 bool InningsHasActivity(const json& inn) {
+    // The bridge always emits at least one innings with a placeholder
+    // overs="0.0" before a ball is bowled, so a *non-empty* overs string is
+    // NOT proof of activity — parse it and require > 0 legal balls.
     return ToInt(Field(inn, "runs"))    > 0 ||
            ToInt(Field(inn, "wickets")) > 0 ||
-           !ToStr(Field(inn, "overs")).empty();
+           LegalBallsFromOvers(ToStr(Field(inn, "overs"))) > 0;
 }
 
 InningsSummary BuildSummary(const json& inn) {
@@ -135,7 +154,10 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
     // Phase classification.
     const std::string result_field      = ToStr(Field(m, "result"));
     const std::string result_desc       = ToStr(Field(m, "result_description"));
-    const bool        has_result        = !result_field.empty() && !result_desc.empty();
+    // Either field alone is enough to count as a completed match. The bridge
+    // sets both, but the real Play-Cricket API can populate one before the
+    // other; we don't want the winner splash gated on the slower field.
+    const bool        has_result        = !result_field.empty() || !result_desc.empty();
 
     // Sort innings by innings_number so [0] = 1st innings, [1] = 2nd.
     std::vector<json> innings_sorted;
@@ -153,12 +175,22 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
     const bool any_innings_with_activity =
         std::any_of(innings_sorted.begin(), innings_sorted.end(), InningsHasActivity);
 
+    // Four-way classification:
+    //   result populated            -> POST_MATCH (winner splash)
+    //   any innings has real balls   -> IN_MATCH   (live scoreboard)
+    //   opponent known, no balls yet -> PRE_MATCH  (team-vs-team splash)
+    //   nothing set up               -> NO_MATCH   (idle logo)
+    // The opponent name is the "match is set up" signal: the home club is
+    // hardcoded, so away_team_name stays empty until the scorer's phone sends
+    // BTN/FTN. This keeps the wall on the logo until a real fixture exists.
     if (has_result) {
         st.phase = MatchPhase::POST_MATCH;
-    } else if (!any_innings_with_activity) {
+    } else if (any_innings_with_activity) {
+        st.phase = MatchPhase::IN_MATCH;
+    } else if (!st.away_team_name.empty()) {
         st.phase = MatchPhase::PRE_MATCH;
     } else {
-        st.phase = MatchPhase::IN_MATCH;
+        st.phase = MatchPhase::NO_MATCH;
     }
 
     // POST_MATCH fields populated whenever we have completed innings to summarise.

@@ -43,6 +43,19 @@ def create_app(accumulator: MatchAccumulator, allow_inject: bool = False) -> Fla
             "unknown_codes":  accumulator.unknown_codes(),
         })
 
+    # Operator overrides for the post-match (winner) splash. The BLE feed
+    # never signals "match over", so the result is normally auto-inferred from
+    # the score; these let the operator force or undo it from the admin console
+    # (which proxies here over localhost). Always on — this is an operator
+    # feature, not a dev-only inject.
+    @app.post("/api/admin/finish")
+    def admin_finish():
+        return jsonify(accumulator.force_finish())
+
+    @app.post("/api/admin/reopen")
+    def admin_reopen():
+        return jsonify(accumulator.reopen())
+
     if allow_inject:
         # Dev-only: simulate a BLE token without a phone. Body =
         # {"code": "BTS", "value": "245/3"} or a list of such objects.

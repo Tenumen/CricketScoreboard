@@ -23,12 +23,15 @@ public:
     // fail-closed "no password = no server" policy.
     // `repo_dir` is the on-Pi git checkout used by /api/version and the
     // update/rollback scripts; `scripts_dir` is the directory containing
-    // update.sh and rollback.sh.
+    // update.sh and rollback.sh. `bridge_base_url` is the BLE bridge's HTTP
+    // root (same value the poll loop uses, e.g. http://127.0.0.1:5051) — the
+    // match-finish/reopen buttons proxy to its /api/admin/* endpoints.
     DebugServer(const SharedMatchState* state,
                 std::string password,
                 int port,
                 std::string repo_dir,
-                std::string scripts_dir);
+                std::string scripts_dir,
+                std::string bridge_base_url);
     ~DebugServer();
 
     DebugServer(const DebugServer&) = delete;
@@ -45,6 +48,7 @@ private:
     int                           port_;
     std::string                   repo_dir_;
     std::string                   scripts_dir_;
+    std::string                   bridge_base_url_;
     std::unique_ptr<httplib::Server> server_;
     std::thread                   thread_;
     std::atomic<bool>             started_{false};

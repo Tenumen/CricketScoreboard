@@ -123,7 +123,7 @@ def match_detail_to_dict(m: S.MatchState) -> dict:
         "no_of_overs":           m.no_of_overs,
         "no_of_innings":         "2",
         "no_of_days":            "1",
-        "no_of_players":         "11",
+        "no_of_players":         _s(m.players_per_side),
         "no_of_reserves":        "0",
         "result":                m.result,
         "result_description":    m.result_description,

@@ -271,6 +271,10 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
   <tr><th>Innings 1</th>  <td id="inn1">—</td></tr>
   <tr><th>Innings 2</th>  <td id="inn2">—</td></tr>
 </table>
+<div class="actions">
+  <button id="btn-finish">Match finished</button>
+  <button id="btn-reopen">Re-open match</button>
+</div>
 
 <div class="section">Internal</div>
 <table>
@@ -412,6 +416,36 @@ document.getElementById('btn-shutdown').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('btn-finish').addEventListener('click', async () => {
+  if (!confirm('Mark the match as finished and show the winner splash?\n\n'
+             + 'The result line is computed from the score. Use "Re-open match" to undo.')) return;
+  try {
+    const r = await fetch('/api/finish', { method: 'POST' });
+    if (r.ok) {
+      const j = await r.json().catch(() => ({}));
+      showBanner('Match finished. ' + (j.result_description || 'Winner splash shown.'));
+    } else {
+      showBanner(`Match-finish request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Match-finish request failed: ' + err.message, true);
+  }
+});
+
+document.getElementById('btn-reopen').addEventListener('click', async () => {
+  if (!confirm('Re-open the match and return to the live scoreboard?')) return;
+  try {
+    const r = await fetch('/api/reopen', { method: 'POST' });
+    if (r.ok) {
+      showBanner('Match re-opened. Back to the live scoreboard.');
+    } else {
+      showBanner(`Re-open request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Re-open request failed: ' + err.message, true);
+  }
+});
+
 refresh();
 setInterval(refresh, 2000);
 </script>
@@ -425,12 +459,14 @@ DebugServer::DebugServer(const SharedMatchState* state,
                          std::string password,
                          int port,
                          std::string repo_dir,
-                         std::string scripts_dir)
+                         std::string scripts_dir,
+                         std::string bridge_base_url)
     : state_(state),
       password_(std::move(password)),
       port_(port),
       repo_dir_(std::move(repo_dir)),
       scripts_dir_(std::move(scripts_dir)),
+      bridge_base_url_(std::move(bridge_base_url)),
       server_(std::make_unique<httplib::Server>()) {
 
     // Avoid SIGCHLD becoming a zombie collector problem when the update
@@ -524,6 +560,39 @@ DebugServer::DebugServer(const SharedMatchState* state,
         }
         res.status = 202;
         res.set_content("{\"started\":true}", "application/json");
+    });
+
+    // Match-finish / reopen: proxy to the BLE bridge, which owns the result
+    // state. We can't write it into our own SharedMatchState — the next poll
+    // would clobber it — so the source of truth must be the bridge.
+    auto proxy_to_bridge = [this](const char* path, httplib::Response& res) {
+        if (bridge_base_url_.empty()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"bridge url not configured\"}", "application/json");
+            return;
+        }
+        httplib::Client cli(bridge_base_url_);
+        cli.set_connection_timeout(3, 0);
+        cli.set_read_timeout(3, 0);
+        auto up = cli.Post(path, "", "application/json");
+        if (!up) {
+            std::fprintf(stderr, "proxy %s -> bridge failed: no response\n", path);
+            res.status = 502;
+            res.set_content("{\"error\":\"bridge unreachable\"}", "application/json");
+            return;
+        }
+        res.status = up->status;
+        res.set_content(up->body, "application/json");
+    };
+
+    server_->Post("/api/finish", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
+        std::fprintf(stderr, "POST /api/finish -> bridge /api/admin/finish\n");
+        proxy_to_bridge("/api/admin/finish", res);
+    });
+
+    server_->Post("/api/reopen", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
+        std::fprintf(stderr, "POST /api/reopen -> bridge /api/admin/reopen\n");
+        proxy_to_bridge("/api/admin/reopen", res);
     });
 
     (void)kStateDir;  // currently only used by the scripts via env var

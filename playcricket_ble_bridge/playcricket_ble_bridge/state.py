@@ -88,8 +88,10 @@ class MatchState:
     away_club_id: int = 0
     status: str = "New"
     no_of_overs: int = 20
+    players_per_side: int = 11   # all-out = players_per_side - 1 wickets
     result: str = ""
     result_description: str = ""
+    result_manual: bool = False  # operator forced/locked the result; auto-infer won't touch it
     match_date: str = ""
     innings: List[Innings] = field(default_factory=lambda: [Innings(innings_number=1)])
 
@@ -176,6 +178,51 @@ def _legal_balls_from_overs(overs: str) -> int:
     return int(o or 0) * 6 + int(b or 0)
 
 
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def compute_result(s: MatchState, force: bool = False):
+    """Infer the match result from the 2nd-innings score.
+
+    The Play-Cricket Scorer BLE feed never sends a result or "match over"
+    token, so we derive it. Returns (result_code, result_description) once the
+    match is decided, else None. The 2nd innings is the chase. With force=True
+    the "innings complete" gate is dropped: the current chase state is treated
+    as final (used by the operator's "Match finished" override).
+    """
+    if len(s.innings) < 2:
+        return ("C", "Match complete") if force else None
+
+    inn1, inn2 = s.innings[0], s.innings[1]
+    target = inn2.revised_target_runs or (inn1.runs + 1)
+    wkts_all_out = max(s.players_per_side - 1, 1)
+    team_first = inn1.team_batting_name or "Team 1"
+    team_chase = inn2.team_batting_name or "Team 2"
+
+    def chase_win() -> tuple[str, str]:
+        in_hand = max(wkts_all_out - inn2.wickets, 0)
+        return ("W", f"{team_chase} won by {_plural(in_hand, 'wicket')}")
+
+    # Chase succeeds: side batting second wins, by wickets in hand.
+    if inn2.runs >= target:
+        return chase_win()
+
+    chase_complete = (
+        inn2.wickets >= wkts_all_out
+        or _legal_balls_from_overs(inn2.overs) >= s.no_of_overs * 6
+    )
+    if chase_complete or force:
+        margin = (target - 1) - inn2.runs
+        if margin > 0:
+            return ("W", f"{team_first} won by {_plural(margin, 'run')}")
+        if margin == 0:
+            return ("T", "Match tied")
+        return chase_win()  # margin < 0 unreachable above, but safe under force
+
+    return None
+
+
 class MatchAccumulator:
     """Thread-safe holder for MatchState. apply() mutates under a lock and
     bumps the generation counter; snapshot() returns the current state."""
@@ -215,7 +262,49 @@ class MatchAccumulator:
             changed = handler(self._state, value)
             if changed:
                 self._generation += 1
+                self._maybe_autoresult()
             return changed
+
+    def _maybe_autoresult(self) -> None:
+        """Set result/result_description if the score now decides the match.
+        Sticky: once a result is set (auto or manual) it is left in place until
+        reopen() clears it. Caller must hold the lock."""
+        s = self._state
+        if s.result_manual or s.result:
+            return
+        res = compute_result(s)
+        if res is not None:
+            s.result, s.result_description = res
+
+    def force_finish(self) -> dict:
+        """Operator override: mark the match complete now, computing a result
+        line from the current score (best-effort), and lock it against
+        auto-infer. Bumps the generation so the next poll sees POST_MATCH."""
+        with self._lock:
+            s = self._state
+            res = compute_result(s, force=True)
+            if res is not None:
+                s.result, s.result_description = res
+            elif not s.result:
+                s.result, s.result_description = ("C", "Match complete")
+            s.result_manual = True
+            self._generation += 1
+            return {
+                "result": s.result,
+                "result_description": s.result_description,
+                "generation": self._generation,
+            }
+
+    def reopen(self) -> dict:
+        """Operator override: clear any result and unlock auto-infer, returning
+        the wall to the live scoreboard. Undoes a premature/incorrect finish."""
+        with self._lock:
+            s = self._state
+            s.result = ""
+            s.result_description = ""
+            s.result_manual = False
+            self._generation += 1
+            return {"generation": self._generation}
 
 
 # ---------- token handlers ----------------------------------------------------
