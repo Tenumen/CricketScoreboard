@@ -121,7 +121,11 @@ std::string RunGitCapture(const std::string& repo_dir,
                           const std::string& args_quoted) {
     // Construct command. repo_dir comes from config, not from user request,
     // so shell quoting is sufficient — no untrusted input reaches the shell.
-    std::string cmd = "git -C '" + repo_dir + "' " + args_quoted + " 2>/dev/null";
+    // -c safe.directory='*' so this works when the service runs as root against
+    // a repo owned by 'tenumen' (git otherwise refuses with "dubious ownership"
+    // and every field reads back as "unknown").
+    std::string cmd = "git -c safe.directory='*' -C '" + repo_dir + "' "
+                    + args_quoted + " 2>/dev/null";
     FILE* p = popen(cmd.c_str(), "r");
     if (!p) return {};
     std::array<char, 512> buf{};

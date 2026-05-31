@@ -7,6 +7,16 @@
 
 set -euo pipefail
 
+# The scoreboard24 service runs as root (HUB75 needs GPIO), so this script —
+# spawned by the admin console — runs as root too, while the git repo is owned
+# by 'tenumen'. Git's safe.directory protection otherwise aborts every command
+# with "detected dubious ownership", before the snapshot/pull/build/restart.
+# Trust all repos for this script's git calls AND the Makefile's `git rev-parse`
+# (make inherits the environment).
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0='*'
+
 REPO_DIR="${REPO_DIR:-/home/tenumen/scoreboard24}"
 STATE_DIR="/var/lib/scoreboard24"
 LOG="$STATE_DIR/last_update.log"

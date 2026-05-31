@@ -7,6 +7,12 @@
 
 set -euo pipefail
 
+# Runs as root (see update.sh) against a tenumen-owned repo; trust all repos so
+# `git reset --hard` below doesn't abort with "detected dubious ownership".
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0='*'
+
 REPO_DIR="${REPO_DIR:-/home/tenumen/scoreboard24}"
 STATE_DIR="/var/lib/scoreboard24"
 LOG="$STATE_DIR/last_update.log"
