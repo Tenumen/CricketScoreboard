@@ -291,6 +291,7 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
 <div class="actions">
   <button id="btn-update">Update from git</button>
   <button id="btn-rollback" disabled>Roll back</button>
+  <button id="btn-reboot" class="danger">Reboot Pi</button>
   <button id="btn-shutdown" class="danger">Shut down Pi</button>
 </div>
 <div id="action-banner" class="banner hidden"></div>
@@ -413,6 +414,23 @@ document.getElementById('btn-shutdown').addEventListener('click', async () => {
     }
   } catch (err) {
     showBanner('Shutdown request failed: ' + err.message, true);
+  }
+});
+
+document.getElementById('btn-reboot').addEventListener('click', async () => {
+  if (!confirm('Reboot the Pi?\n\nThe scoreboard will stop and the LED wall '
+             + 'will go dark for ~30-60 s while the Pi restarts, then come '
+             + 'back automatically.')) return;
+  try {
+    const r = await fetch('/api/reboot', { method: 'POST' });
+    if (r.status === 202) {
+      showBanner('Reboot started. The LED wall will go dark shortly and the '
+               + 'scoreboard will return automatically after the Pi restarts.');
+    } else {
+      showBanner(`Reboot request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Reboot request failed: ' + err.message, true);
   }
 });
 
@@ -553,6 +571,18 @@ DebugServer::DebugServer(const SharedMatchState* state,
     server_->Post("/api/shutdown", [this](const httplib::Request&, httplib::Response& res) {
         const std::string script = scripts_dir_ + "/shutdown_pi.sh";
         std::fprintf(stderr, "POST /api/shutdown → spawning %s\n", script.c_str());
+        if (!SpawnDetachedScript(script)) {
+            res.status = 500;
+            res.set_content("{\"error\":\"fork failed\"}", "application/json");
+            return;
+        }
+        res.status = 202;
+        res.set_content("{\"started\":true}", "application/json");
+    });
+
+    server_->Post("/api/reboot", [this](const httplib::Request&, httplib::Response& res) {
+        const std::string script = scripts_dir_ + "/reboot_pi.sh";
+        std::fprintf(stderr, "POST /api/reboot → spawning %s\n", script.c_str());
         if (!SpawnDetachedScript(script)) {
             res.status = 500;
             res.set_content("{\"error\":\"fork failed\"}", "application/json");
