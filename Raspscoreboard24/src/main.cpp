@@ -228,12 +228,13 @@ int main(int argc, char *argv[]) {
     // Big "ball-by-ball" layout font ladder. Generated with
     //   otf2bdf -p N -r 72 LiberationMono-Bold.ttf -o fonts/liberation-mono-bold-N.bdf
     // Used by best_fit_font() to maximise each number against its cell.
-    Font font_p50, font_p70, font_p90, font_p110, font_p130;
+    Font font_p50, font_p70, font_p90, font_p100, font_p110, font_p130;
     {
         struct { Font *f; const char *path; } ladder[] = {
             {&font_p50,  "fonts/liberation-mono-bold-50.bdf"},
             {&font_p70,  "fonts/liberation-mono-bold-70.bdf"},
             {&font_p90,  "fonts/liberation-mono-bold-90.bdf"},
+            {&font_p100, "fonts/liberation-mono-bold-100.bdf"},
             {&font_p110, "fonts/liberation-mono-bold-110.bdf"},
             {&font_p130, "fonts/liberation-mono-bold-130.bdf"},
         };
@@ -306,12 +307,18 @@ int main(int argc, char *argv[]) {
     // rendering of `s` fits inside box_w × box_h. Falls back to the smallest
     // candidate if none fit. Used by the big "ball-by-ball" layout to maximise
     // each number against its cell regardless of digit count.
+    //
+    // NB: Font::height() returns the BDF FONTBOUNDINGBOX height, which is ~1.37x
+    // the point size because it reserves space for descenders that digits never
+    // use — gating on it under-sizes every number. We gate on baseline()
+    // (the ascent, ≈ the point size) instead, which bounds the cap-height of
+    // digits and is the right budget for an all-numeric cell.
     auto best_fit_font = [&](std::initializer_list<const Font *> fonts,
                              const char *s, int box_w, int box_h) -> const Font & {
         const Font *fallback = *fonts.begin();
         for (const Font *f : fonts) {
             fallback = f;
-            if (text_width(*f, s) <= box_w && f->height() <= box_h) return *f;
+            if (text_width(*f, s) <= box_w && f->baseline() <= box_h) return *f;
         }
         return *fallback;
     };
@@ -518,30 +525,31 @@ int main(int argc, char *argv[]) {
         // ===== RUNS : cols 1-3, rows A-B (192 x 128) =====
         snprintf(buf, sizeof(buf), "%d", s.runs);
         {
-            const Font &f = best_fit_font({&font_p130, &font_p110, &font_p90, &font_p70},
-                                          buf, 180, 116);
+            const Font &f = best_fit_font({&font_p130, &font_p110, &font_p100, &font_p90},
+                                          buf, 188, 120);
             draw_centered(f, 96, baseline_for_centre(f, 64), c_amber, buf);
         }
 
-        // ===== WKTS : cols 5-6, top half (256,0,128,96) =====
-        snprintf(buf, sizeof(buf), "%d", s.wkts);
-        {
-            const Font &f = best_fit_font({&font_p90, &font_p70, &font_p50}, buf, 120, 96);
-            const int x_right  = 380;
-            const int num_left = x_right - text_width(f, buf);
-            draw_right(f, x_right, baseline_for_centre(f, 48), c_red, buf);
-            draw_capped_label(num_left, 48, c_white, {"WKTS", "WKT", "W"});
-        }
-
-        // ===== OVERS : cols 5-6, bottom half (256,96,128,96) =====
+        // ===== OVERS : cols 5-6, top half (256,0,128,96) =====
         {
             const char *overs_str = s.overs.empty() ? "-" : s.overs.c_str();
             const Font &f = best_fit_font({&font_p70, &font_p50, &font_small_num},
                                           overs_str, 128, 96);
             const int x_right  = 380;
             const int num_left = x_right - text_width(f, overs_str);
-            draw_right(f, x_right, baseline_for_centre(f, 144), c_green, overs_str);
-            draw_capped_label(num_left, 144, c_white, {"OVERS", "OVR", "OV"});
+            draw_right(f, x_right, baseline_for_centre(f, 48), c_green, overs_str);
+            draw_capped_label(num_left, 48, c_white, {"OVERS", "OVR", "OV"});
+        }
+
+        // ===== WKTS : cols 5-6, bottom half (256,96,128,96) =====
+        snprintf(buf, sizeof(buf), "%d", s.wkts);
+        {
+            const Font &f = best_fit_font({&font_p110, &font_p100, &font_p90, &font_p70},
+                                          buf, 124, 100);
+            const int x_right  = 380;
+            const int num_left = x_right - text_width(f, buf);
+            draw_right(f, x_right, baseline_for_centre(f, 144), c_red, buf);
+            draw_capped_label(num_left, 144, c_white, {"WKTS", "WKT", "W"});
         }
 
         // ===== Batters : bottom rows C-D, cols 1-4 (B1 over B2) =====
