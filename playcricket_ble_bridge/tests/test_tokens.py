@@ -86,37 +86,59 @@ def test_ovb_normalises_bare_integer():
     assert acc.snapshot().innings[-1].overs == "5.3"
 
 
-def test_home_team_name_hardcoded_at_construction():
-    """home_team_name is pinned at MatchAccumulator init — the Play-Cricket
-    Scorer app does not transmit it over BLE."""
+def test_home_away_empty_at_construction():
+    """No team name is hardcoded — both slots are empty until the app's
+    BTN/FTN tokens arrive."""
     snap = MatchAccumulator().snapshot()
-    assert snap.home_team_name == "Aston on Trent"
+    assert snap.home_team_name == ""
+    assert snap.away_team_name == ""
 
 
-def test_btn_home_does_not_overwrite_hardcoded_home():
+def test_real_match_hint_maps_our_side_home_even_when_fielding():
+    """The exact 2026-05-31 scenario: our club fielded first. Both real names
+    come from the app; the 'Aston' hint puts our side in the home slot."""
+    acc = MatchAccumulator()                       # default hint = "Aston"
+    acc.apply("BTN", "Sutton Bonington CC Sunday XI")   # opposition batting
+    acc.apply("FTN", "Aston on Trent Village CC 1st XI") # we are fielding
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston on Trent Village CC 1st XI"
+    assert snap.away_team_name == "Sutton Bonington CC Sunday XI"
+    assert snap.innings[0].team_batting_name  == "Sutton Bonington CC Sunday XI"
+    assert snap.innings[0].team_fielding_name == "Aston on Trent Village CC 1st XI"
+
+
+def test_hint_maps_our_side_home_when_batting():
     acc = MatchAccumulator()
-    acc.apply("BTN", "Aston on Trent")             # home batting
+    acc.apply("BTN", "Aston on Trent")             # we bat first
+    acc.apply("FTN", "Melbourne 1st XI")
     snap = acc.snapshot()
     assert snap.home_team_name == "Aston on Trent"
-    assert snap.innings[-1].team_batting_name == "Aston on Trent"
-    assert snap.away_team_name == ""               # no away info yet
+    assert snap.away_team_name == "Melbourne 1st XI"
 
 
-def test_btn_away_learns_away_team_name():
+def test_positional_fallback_when_no_hint_match():
+    """Neither name contains the hint -> team batting first is home."""
     acc = MatchAccumulator()
-    acc.apply("BTN", "Melbourne")                  # away batting first
+    acc.apply("BTN", "Repton CC")                  # batting first
+    acc.apply("FTN", "Melbourne 1st XI")           # fielding first
     snap = acc.snapshot()
-    assert snap.home_team_name == "Aston on Trent" # untouched
-    assert snap.away_team_name == "Melbourne"
-    assert snap.innings[-1].team_batting_name == "Melbourne"
+    assert snap.home_team_name == "Repton CC"
+    assert snap.away_team_name == "Melbourne 1st XI"
 
 
-def test_ftn_fills_away_team_name():
+def test_home_away_stable_across_innings_flip():
+    """Once set from innings 1, the home/away labels do not re-swap when the
+    batting side flips for innings 2."""
     acc = MatchAccumulator()
-    acc.apply("FTN", "Away")
+    acc.apply("BTN", "Sutton Bonington CC Sunday XI")
+    acc.apply("FTN", "Aston on Trent Village CC 1st XI")
+    acc.apply("BTS", "180/8")
+    acc.apply("BTN", "Aston on Trent Village CC 1st XI")  # 2nd innings, we bat
     snap = acc.snapshot()
-    assert snap.home_team_name == "Aston on Trent"
-    assert snap.away_team_name == "Away"
+    assert len(snap.innings) == 2
+    assert snap.home_team_name == "Aston on Trent Village CC 1st XI"
+    assert snap.away_team_name == "Sutton Bonington CC Sunday XI"
+    assert snap.innings[1].team_batting_name == "Aston on Trent Village CC 1st XI"
 
 
 def test_btn_change_opens_second_innings():
@@ -185,7 +207,7 @@ def test_realistic_scoring_sequence_produces_in_progress_match():
     acc = MatchAccumulator(our_club_id=42)
     # Innings 1 — Aston on Trent batting
     for code, val in [
-        ("BTN", "Aston on Trent"),                 # matches hardcoded home
+        ("BTN", "Aston on Trent"),                 # our side bats -> home via hint
         ("FTN", "Melbourne 1st XI"),
         ("BTS", "0/0"),
         ("OVB", "0.0"),

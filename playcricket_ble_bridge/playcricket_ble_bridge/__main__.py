@@ -47,6 +47,10 @@ def main(argv=None) -> int:
                     help="HTTP bind port (default: 5051)")
     ap.add_argument("--our-club-id", type=int, default=0,
                     help="Our club's Play-Cricket site id (so 'home' / 'opponent' resolves correctly on the wall)")
+    ap.add_argument("--our-team-name", default="Aston",
+                    help="Name fragment that identifies our club among the app's "
+                         "batting/fielding team names, so its real name maps to the "
+                         "home slot (case-insensitive; default: 'Aston')")
     ap.add_argument("--discovery-log",
                     default=os.environ.get("BRIDGE_DISCOVERY_LOG", "discovery.log"),
                     help="Append every received BLE token here (default: ./discovery.log)")
@@ -60,7 +64,8 @@ def main(argv=None) -> int:
     _setup_logging(args.verbose)
     log = logging.getLogger("playcricket_ble_bridge")
 
-    accumulator = MatchAccumulator(our_club_id=args.our_club_id)
+    accumulator = MatchAccumulator(our_club_id=args.our_club_id,
+                                   our_team_name=args.our_team_name)
     _start_http(accumulator, args.host, args.port, allow_inject=args.allow_inject)
     log.info("HTTP server listening on http://%s:%d", args.host, args.port)
     log.info("  result_summary: http://%s:%d/api/v2/result_summary.json", args.host, args.port)

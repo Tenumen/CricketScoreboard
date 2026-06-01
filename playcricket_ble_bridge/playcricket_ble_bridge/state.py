@@ -23,11 +23,11 @@ from typing import List, Optional
 from . import tokens as T
 
 
-# Hardcoded — this bridge runs at Aston on Trent VCC's ground. The
-# Play-Cricket Scorer app does not transmit the home team name over BLE
-# under any token we have observed, so it's pinned here. Change here if
-# the bridge is ever installed at another club.
-HOME_TEAM_NAME = "Aston on Trent"
+# Default fragment used to recognise our own club among the two team names
+# the app sends (BTN = batting team, FTN = fielding team). Overridable via
+# --our-team-name. It only decides which real name maps to the home slot;
+# the displayed names always come from the app.
+DEFAULT_OUR_TEAM_HINT = "Aston"
 
 
 @dataclass
@@ -55,6 +55,7 @@ class Fow:
 class Innings:
     innings_number: int = 1
     team_batting_name: str = ""
+    team_fielding_name: str = ""
     runs: int = 0
     wickets: int = 0
     overs: str = "0.0"           # "32.3"
@@ -103,6 +104,10 @@ class MatchState:
     last_ball_runs:      int  = 0
     last_ball_is_wicket: bool = False
     last_wicket_id:      int  = 0
+
+    # Non-serialised: fragment that identifies our club so its real (app-sent)
+    # name maps to the home slot. Set from --our-team-name at construction.
+    _our_team_hint: str = DEFAULT_OUR_TEAM_HINT
 
 
 def _parse_overs(value: str) -> str:
@@ -227,13 +232,14 @@ class MatchAccumulator:
     """Thread-safe holder for MatchState. apply() mutates under a lock and
     bumps the generation counter; snapshot() returns the current state."""
 
-    def __init__(self, our_club_id: int = 0):
+    def __init__(self, our_club_id: int = 0,
+                 our_team_name: str = DEFAULT_OUR_TEAM_HINT):
         self._lock = RLock()
         self._state = MatchState()
-        # Pretend our club is the home side so the C++ chasing logic resolves.
-        # Set via config so the wall labels "home/opponent" correctly.
         self._state.home_club_id   = our_club_id
-        self._state.home_team_name = HOME_TEAM_NAME
+        # home/away team names are learned from the app's BTN/FTN tokens; only
+        # the hint that picks which side is "ours" is configured here.
+        self._state._our_team_hint = (our_team_name or "").strip()
         self._generation = 0
         self._unknown_codes: dict[str, int] = {}
 
@@ -442,28 +448,73 @@ def _h_bowler_info(s: MatchState, value: str) -> bool:
     return False
 
 
-def _h_ftn(s: MatchState, value: str) -> bool:
-    """FTN = fielding team this innings. With home_team_name hardcoded, the
-    incoming value is the away team whenever it differs from home; if it
-    matches home, then home is fielding and the away side is batting (no
-    away-name info to extract).
+def _assign_home_away(s: MatchState) -> bool:
+    """Map the two real team names (which the app sends per innings as BTN =
+    batting, FTN = fielding) onto the home/away slots.
+
+    BLE never encodes home vs away — only batting vs fielding, which swap each
+    innings. So we fix the mapping from innings 1: the side batting first and
+    the side fielding first are the two match teams. Rule:
+      1. If exactly one of them contains our hint -> that side is home.
+      2. Otherwise fall back to: team batting first = home.
+    Computed off innings 1 (with a current-innings fallback for a role not yet
+    seen) so the innings-2 role swap never re-swaps the labels. Returns True if
+    home/away changed.
     """
+    first = s.innings[0]
+    cur   = _current_innings(s)
+    bat_first = first.team_batting_name or cur.team_batting_name
+    # The "other" team is the side fielding first. If FTN never arrived, the
+    # team batting in innings 2 is that same side, so fall back to it.
+    other = first.team_fielding_name
+    if not other and len(s.innings) > 1:
+        other = s.innings[1].team_batting_name
+    if not other:
+        other = cur.team_fielding_name
+    if not bat_first and not other:
+        return False
+
+    hint = (s._our_team_hint or "").casefold()
+    home = away = ""
+    if hint and bat_first and other:
+        bat_match   = hint in bat_first.casefold()
+        other_match = hint in other.casefold()
+        if bat_match and not other_match:
+            home, away = bat_first, other
+        elif other_match and not bat_match:
+            home, away = other, bat_first
+    if not home and not away:
+        # Positional fallback: team batting first is home.
+        home, away = bat_first, other
+
+    changed = False
+    if home and s.home_team_name != home:
+        s.home_team_name = home
+        changed = True
+    if away and s.away_team_name != away:
+        s.away_team_name = away
+        changed = True
+    return changed
+
+
+def _h_ftn(s: MatchState, value: str) -> bool:
+    """FTN = fielding team name this innings (a real name from the app)."""
     name = value.strip()
-    if not name or name == s.home_team_name:
+    if not name:
         return False
-    if s.away_team_name == name:
-        return False
-    s.away_team_name = name
-    return True
+    cur = _current_innings(s)
+    changed = False
+    if cur.team_fielding_name != name:
+        cur.team_fielding_name = name
+        changed = True
+    changed |= _assign_home_away(s)
+    return changed
 
 
 def _h_btn(s: MatchState, value: str) -> bool:
-    """BTN = batting team this innings. With home_team_name hardcoded:
-      - If BTN matches home, home is batting (no away-name info).
-      - Otherwise, BTN is the away team and we learn its name here.
-    A BTN whose value differs from the current innings' batting-team
-    name still triggers the "open 2nd innings" path (the team flipped).
-    """
+    """BTN = batting team name this innings (a real name from the app). A BTN
+    that differs from the current innings' batting team triggers the "open 2nd
+    innings" path (the batting side flipped)."""
     name = value.strip()
     if not name:
         return False
@@ -473,9 +524,7 @@ def _h_btn(s: MatchState, value: str) -> bool:
     if cur.team_batting_name != name:
         cur.team_batting_name = name
         changed = True
-    if name != s.home_team_name and s.away_team_name != name:
-        s.away_team_name = name
-        changed = True
+    changed |= _assign_home_away(s)
     return changed
 
 
