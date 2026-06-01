@@ -804,6 +804,7 @@ int main(int argc, char *argv[]) {
 
         // Auto-expire short splashes after 10 s. PostMatchFireworks runs as
         // long as we're in POST_MATCH; it clears when phase changes back.
+        const Interlude active_before = active;
         if (active == Interlude::Wicket || active == Interlude::Four || active == Interlude::Six) {
             const auto elapsed = std::chrono::steady_clock::now() - active_start;
             if (elapsed >= std::chrono::seconds(10)) {
@@ -812,9 +813,13 @@ int main(int argc, char *argv[]) {
         } else if (active == Interlude::PostMatchFireworks && s.phase != MatchPhase::POST_MATCH) {
             active = Interlude::None;
         }
+        // An interlude that just expired must trigger one redraw to repaint the
+        // scoreboard underneath — otherwise the splash stays frozen on screen
+        // until the next state change.
+        const bool just_cleared = (active_before != Interlude::None && active == Interlude::None);
 
         const bool animating = (active != Interlude::None);
-        if (!state_changed && !animating) continue;    // preserve idle-cheap path
+        if (!state_changed && !animating && !just_cleared) continue;  // preserve idle-cheap path
 
         const auto now = std::chrono::steady_clock::now();
         const float dt = std::chrono::duration<float>(now - last_anim).count();
