@@ -254,6 +254,7 @@ int main(int argc, char *argv[]) {
     Color c_cyan (100, 200, 255);
     Color c_green(  0, 220,   0);
     Color c_amber(255, 165,   0);
+    Color c_runs (255, 245, 150);  // pale yellow — big-layout RUNS number
     Color c_red  (255, 110, 110);  // lighter — more luminance for distance readability
     Color c_grey ( 80,  80,  80);
 
@@ -527,7 +528,7 @@ int main(int argc, char *argv[]) {
         {
             const Font &f = best_fit_font({&font_p130, &font_p110, &font_p100, &font_p90},
                                           buf, 188, 120);
-            draw_centered(f, 96, baseline_for_centre(f, 64), c_amber, buf);
+            draw_centered(f, 96, baseline_for_centre(f, 64), c_runs, buf);
         }
 
         // ===== OVERS : cols 5-6, top half (256,0,128,96) =====
@@ -558,13 +559,14 @@ int main(int argc, char *argv[]) {
             // Label (B1 / B2) hard left.
             draw_left(font_label_big, 4, baseline_for_centre(font_label_big, band_centre_y),
                       c_white, label);
-            // Score: right-aligned, maximised for the 64 px band. Kept within
-            // cols 1-3 (right edge 188) so it never reaches the OVERS/WKTS labels
-            // that sit in col 4 (x >= 192).
+            // Score: right-aligned at x=252 (moved 64 px right, 2026-06-01),
+            // p70 maximised for the 64 px band. Right edge stays just left of
+            // col 5 (x=256); a 2-digit WKTS ("10") or wide OVERS string can reach
+            // back to ~248, so a rare overlap is possible only in those edge cases.
             snprintf(buf, sizeof(buf), "%d", score);
-            const Font &sf = best_fit_font({&font_score, &font_p50, &font_small_num},
-                                           buf, 96, 60);
-            const int score_right = 188;
+            const Font &sf = best_fit_font({&font_p70, &font_score, &font_p50, &font_small_num},
+                                           buf, 130, 72);
+            const int score_right = 252;
             const int score_left  = score_right - text_width(sf, buf);
             draw_right(sf, score_right, baseline_for_centre(sf, band_centre_y), c_white, buf);
             // Name (+ * on strike), truncated to the gap between label and score.
