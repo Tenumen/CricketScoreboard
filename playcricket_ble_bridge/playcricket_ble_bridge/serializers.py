@@ -128,6 +128,7 @@ def match_detail_to_dict(m: S.MatchState) -> dict:
         "result":                m.result,
         "result_description":    m.result_description,
         "result_applied_to":     "",
+        "force_live":            m.force_live,
         "match_notes":           "",
         "points":                [],
         "match_result_types":    [],

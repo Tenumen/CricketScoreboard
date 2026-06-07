@@ -159,6 +159,11 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
     // other; we don't want the winner splash gated on the slower field.
     const bool        has_result        = !result_field.empty() || !result_desc.empty();
 
+    // Operator "blank scoreboard" override: the bridge sets this to force the
+    // live layout on before any ball is bowled (0/0, no batters). Without it a
+    // 0/0 innings has no activity and would classify as PRE_MATCH / NO_MATCH.
+    const bool force_live = ToBool(Field(m, "force_live"));
+
     // Sort innings by innings_number so [0] = 1st innings, [1] = 2nd.
     std::vector<json> innings_sorted;
     {
@@ -185,7 +190,7 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
     // BTN/FTN. This keeps the wall on the logo until a real fixture exists.
     if (has_result) {
         st.phase = MatchPhase::POST_MATCH;
-    } else if (any_innings_with_activity) {
+    } else if (any_innings_with_activity || force_live) {
         st.phase = MatchPhase::IN_MATCH;
     } else if (!st.away_team_name.empty()) {
         st.phase = MatchPhase::PRE_MATCH;
@@ -215,8 +220,15 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
         }
     }
     if (!current) {
-        // Defensive — shouldn't reach here given the phase check above.
-        st.phase = MatchPhase::PRE_MATCH;
+        // No innings has real activity. Under the "blank scoreboard" override
+        // that's expected — stay IN_MATCH and render the default zeros (0/0,
+        // overs "0.0", no batters). Otherwise it's the defensive case and we
+        // fall back to the team splash.
+        if (force_live) {
+            st.overs = "0.0";  // empty would render as "-"; show a live 0.0
+        } else {
+            st.phase = MatchPhase::PRE_MATCH;
+        }
         result.ok = true;
         return result;
     }

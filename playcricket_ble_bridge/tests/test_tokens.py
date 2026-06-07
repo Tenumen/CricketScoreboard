@@ -281,6 +281,40 @@ def test_bts_does_not_regress_runs_when_arriving_stale():
     assert inn.runs == 5
 
 
+def test_bts_pairs_total_may_fall_on_wicket():
+    """Pairs cricket: a wicket is a -5 run penalty, so the bare-numeric BTS
+    total can legitimately decrease — it must not be clamped upward."""
+    acc = MatchAccumulator()
+    assert acc.apply("BTS", "224") is True
+    assert acc.apply("BTS", "219") is True          # wicket: 224 - 5
+    inn = acc.snapshot().innings[-1]
+    assert inn.runs == 219
+    assert inn.pairs is True
+
+
+def test_pairs_cov_does_not_reinflate_total_past_penalty():
+    """In pairs the COV strip can't see the -5 penalty (a 'W' ball is 0 runs),
+    so once BTS has docked the runs the COV path must not push the total back
+    up to the pre-wicket figure."""
+    acc = MatchAccumulator()
+    acc.apply("BTS", "224")                          # latch pairs mode
+    acc.apply("COV", ". 1 1 1 1 W ")                 # 4 runs + a wicket this over
+    acc.apply("BTS", "219")                          # app's net total after -5
+    inn = acc.snapshot().innings[-1]
+    assert inn.runs == 219
+
+
+def test_bts_full_format_still_clamps_runs_forward():
+    """Regression guard: full-format BTS (with /wkts) keeps the forward-only
+    behaviour, so a stale lower value never pulls the total back."""
+    acc = MatchAccumulator()
+    acc.apply("BTS", "224/3")
+    assert acc.apply("BTS", "219/3") is False        # clamped: no change
+    inn = acc.snapshot().innings[-1]
+    assert inn.runs == 224
+    assert inn.pairs is False
+
+
 def test_b1n_b2n_set_batsman_names():
     acc = MatchAccumulator()
     acc.apply("B1N", "A Afirstname")

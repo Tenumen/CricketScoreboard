@@ -56,6 +56,17 @@ def create_app(accumulator: MatchAccumulator, allow_inject: bool = False) -> Fla
     def admin_reopen():
         return jsonify(accumulator.reopen())
 
+    # Clear the match back to a clean slate (idle logo, ready for a new game);
+    # and force the live 0/0 board on before any score arrives. Both proxied
+    # from the admin console, same as finish/reopen.
+    @app.post("/api/admin/reset")
+    def admin_reset():
+        return jsonify(accumulator.reset())
+
+    @app.post("/api/admin/blank")
+    def admin_blank():
+        return jsonify(accumulator.blank_scoreboard())
+
     if allow_inject:
         # Dev-only: simulate a BLE token without a phone. Body =
         # {"code": "BTS", "value": "245/3"} or a list of such objects.

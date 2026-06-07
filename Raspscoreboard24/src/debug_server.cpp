@@ -280,6 +280,17 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
   <button id="btn-reopen">Re-open match</button>
 </div>
 
+<div class="section">Display control</div>
+<div class="actions">
+  <button id="btn-blank">Blank scoreboard</button>
+  <button id="btn-clear" class="danger">Clear / reset to logo</button>
+</div>
+
+<div class="section">Connection</div>
+<div class="actions">
+  <button id="btn-reset-bt" class="danger">Reset Bluetooth</button>
+</div>
+
 <div class="section">Internal</div>
 <table>
   <tr><th>Generation</th><td id="generation">—</td></tr>
@@ -468,6 +479,59 @@ document.getElementById('btn-reopen').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('btn-blank').addEventListener('click', async () => {
+  if (!confirm('Show a blank 0/0 scoreboard (no batter names)?\n\n'
+             + 'Use this at the start of a match, before Play Cricket has sent '
+             + 'the score. The board fills in live as data arrives.')) return;
+  try {
+    const r = await fetch('/api/blank', { method: 'POST' });
+    if (r.ok) {
+      showBanner('Blank scoreboard shown. Waiting for live data.');
+    } else {
+      showBanner(`Blank-scoreboard request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Blank-scoreboard request failed: ' + err.message, true);
+  }
+});
+
+document.getElementById('btn-clear').addEventListener('click', async () => {
+  if (!confirm('Clear the game and return to the logo?\n\n'
+             + 'This wipes the current match so a new game can start. Use it to '
+             + 'remove a frozen score after the Bluetooth link drops, or to '
+             + 'abandon a test match before a real one.')) return;
+  try {
+    const r = await fetch('/api/clear', { method: 'POST' });
+    if (r.ok) {
+      showBanner('Game cleared. Wall is back on the logo, ready for a new match.');
+    } else {
+      showBanner(`Clear request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Clear request failed: ' + err.message, true);
+  }
+});
+
+document.getElementById('btn-reset-bt').addEventListener('click', async () => {
+  if (!confirm('Reset the Bluetooth connection?\n\n'
+             + 'Use this if the phone can no longer connect and the scoreboard '
+             + 'has stopped receiving data. The Bluetooth stack and the data '
+             + 'bridge restart (~10 s) while the LED wall keeps running. Any '
+             + 'in-progress score clears and rebuilds when the phone reconnects.')) return;
+  try {
+    const r = await fetch('/api/reset-bt', { method: 'POST' });
+    if (r.status === 202) {
+      showBanner('Bluetooth reset started. The phone should be able to connect '
+               + 'again in ~10 s. Re-open the scorer app’s external-scoreboard '
+               + 'connection if it doesn’t reconnect on its own.');
+    } else {
+      showBanner(`Bluetooth-reset request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Bluetooth-reset request failed: ' + err.message, true);
+  }
+});
+
 refresh();
 setInterval(refresh, 2000);
 </script>
@@ -596,6 +660,18 @@ DebugServer::DebugServer(const SharedMatchState* state,
         res.set_content("{\"started\":true}", "application/json");
     });
 
+    server_->Post("/api/reset-bt", [this](const httplib::Request&, httplib::Response& res) {
+        const std::string script = scripts_dir_ + "/reset_bluetooth.sh";
+        std::fprintf(stderr, "POST /api/reset-bt → spawning %s\n", script.c_str());
+        if (!SpawnDetachedScript(script)) {
+            res.status = 500;
+            res.set_content("{\"error\":\"fork failed\"}", "application/json");
+            return;
+        }
+        res.status = 202;
+        res.set_content("{\"started\":true}", "application/json");
+    });
+
     // Match-finish / reopen: proxy to the BLE bridge, which owns the result
     // state. We can't write it into our own SharedMatchState — the next poll
     // would clobber it — so the source of truth must be the bridge.
@@ -627,6 +703,16 @@ DebugServer::DebugServer(const SharedMatchState* state,
     server_->Post("/api/reopen", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
         std::fprintf(stderr, "POST /api/reopen -> bridge /api/admin/reopen\n");
         proxy_to_bridge("/api/admin/reopen", res);
+    });
+
+    server_->Post("/api/blank", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
+        std::fprintf(stderr, "POST /api/blank -> bridge /api/admin/blank\n");
+        proxy_to_bridge("/api/admin/blank", res);
+    });
+
+    server_->Post("/api/clear", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
+        std::fprintf(stderr, "POST /api/clear -> bridge /api/admin/reset\n");
+        proxy_to_bridge("/api/admin/reset", res);
     });
 
     (void)kStateDir;  // currently only used by the scripts via env var

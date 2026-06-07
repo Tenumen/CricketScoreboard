@@ -62,6 +62,13 @@ class Innings:
     revised_target_runs: int = 0
     bat: List[Bat] = field(default_factory=lambda: [Bat(position=1), Bat(position=2)])
     fow: List[Fow] = field(default_factory=list)
+    # Pairs cricket: the app sends BTS as a bare total (no "/wkts") and a wicket
+    # is a -5 run penalty rather than a dismissal, so the team total can fall.
+    # Set True the first time a no-slash BTS arrives. While set, BTS is treated
+    # as the authoritative net total (it may decrease) and the COV-derived path
+    # is barred from driving the total — COV maps a 'W' ball to 0 runs, so it
+    # can never represent the -5 penalty and would otherwise re-inflate it.
+    pairs: bool = False
 
     # COV-derived running tallies. The Play-Cricket Scorer app sometimes
     # skips BTS / OVB updates between balls (it only refreshes them on
@@ -93,6 +100,10 @@ class MatchState:
     result: str = ""
     result_description: str = ""
     result_manual: bool = False  # operator forced/locked the result; auto-infer won't touch it
+    # Operator forced the live scoreboard on even though no ball has been bowled
+    # (0/0, no batters). Lets the wall leave the PRE_MATCH splash for the live
+    # layout before Play-Cricket has sent any score. Sticky until the next reset.
+    force_live: bool = False
     match_date: str = ""
     innings: List[Innings] = field(default_factory=lambda: [Innings(innings_number=1)])
 
@@ -312,6 +323,42 @@ class MatchAccumulator:
             self._generation += 1
             return {"generation": self._generation}
 
+    def reset(self) -> dict:
+        """Operator override: wipe the match back to a clean slate so the wall
+        returns to the idle logo (NO_MATCH) and is ready to accept a fresh
+        game's data. Used both to clear a frozen board after a dropped BLE link
+        and to abandon a test/custom match before starting a real one — the
+        latter matters because score handlers are forward-only (BTS uses
+        max()), so a new 0/0 would never overwrite a stale total without this.
+
+        Preserves the configured home-club id and our-team hint (the same two
+        fields __init__ seeds) so home/away mapping still works on the next
+        game; everything else is discarded."""
+        with self._lock:
+            our_club_id = self._state.home_club_id
+            our_team_hint = self._state._our_team_hint
+            self._state = MatchState()
+            self._state.home_club_id = our_club_id
+            self._state._our_team_hint = our_team_hint
+            self._generation += 1
+            return {"generation": self._generation}
+
+    def blank_scoreboard(self) -> dict:
+        """Operator override: force the live scoreboard on now, even with no ball
+        bowled (0/0, no batters). For a match that has started but before
+        Play-Cricket has sent any score — moves the wall off the PRE_MATCH
+        splash onto the live layout. Non-destructive: clears any result so it
+        isn't treated as POST_MATCH, but leaves team/innings data intact so the
+        board fills in live as tokens arrive. Sticky until reset()."""
+        with self._lock:
+            s = self._state
+            s.force_live = True
+            s.result = ""
+            s.result_description = ""
+            s.result_manual = False
+            self._generation += 1
+            return {"generation": self._generation}
+
 
 # ---------- token handlers ----------------------------------------------------
 #
@@ -335,9 +382,18 @@ def _ensure_second_innings(s: MatchState, batting_team_name: str) -> None:
 def _h_bts(s: MatchState, value: str) -> bool:
     runs, wkts = _parse_score(value)
     inn = _current_innings(s)
-    # Runs go forward only — the COV-derived path may have us at a higher
-    # total already because BTS is sometimes a delivery behind.
-    new_runs = max(inn.runs, runs)
+    # A bare numeric BTS (no "/wkts") means pairs cricket; latch the mode so the
+    # COV path knows to keep its hands off the total (see _h_cov).
+    if value.strip() and "/" not in value:
+        inn.pairs = True
+    if inn.pairs:
+        # Pairs: BTS is the authoritative net total and a wicket docks 5 runs,
+        # so it can legitimately fall — trust it as an absolute value.
+        new_runs = runs
+    else:
+        # Full cricket: runs go forward only — the COV-derived path may have us
+        # at a higher total already because BTS is sometimes a delivery behind.
+        new_runs = max(inn.runs, runs)
     if inn.runs == new_runs and inn.wickets == wkts:
         return False
     inn.runs    = new_runs
@@ -422,7 +478,10 @@ def _h_cov(s: MatchState, value: str) -> bool:
     if total_legal_balls > _legal_balls_from_overs(inn.overs):
         inn.overs = derived_overs
         changed = True
-    if derived_runs > inn.runs:
+    # In pairs the COV strip can't see the -5 wicket penalty (a 'W' ball is 0
+    # runs), so it must not drive the team total — BTS owns it there. In full
+    # cricket COV keeps the total live on balls where BTS lags a delivery.
+    if not inn.pairs and derived_runs > inn.runs:
         inn.runs = derived_runs
         changed = True
     if changed or striker_changed:

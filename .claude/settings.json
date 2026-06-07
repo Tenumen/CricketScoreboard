@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pactl list*)"
+      "Bash(pactl list*)",
+      "Bash(ping *)",
+      "Bash(nordvpn status *)"
     ]
   }
 }
