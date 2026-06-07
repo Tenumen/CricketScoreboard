@@ -19,11 +19,86 @@ from typing import Optional
 
 from . import tokens as T
 from .state import MatchAccumulator
+from .ble_dbus import count_connected_devices, ensure_adapter_hygiene
 
 log = logging.getLogger(__name__)
 
 
 _ADVERT_NAME = "scoreboard24"
+
+# How often the watchdog checks the real link/advertising state. Cheap on a Pi 3B
+# (one dbus round-trip) and fast enough that a re-advertise follows a disconnect
+# within a few seconds.
+_WATCHDOG_POLL_SECONDS = 3.0
+
+
+async def _safe_readvertise(server) -> None:
+    """Tear down (guarded) and restart advertising. Never raises.
+
+    BlueZ deactivates a connectable advertisement the moment a central connects
+    and never re-registers it, so after a disconnect the Pi stops being
+    discoverable. ``start_advertising`` won't re-register an existing advert path
+    and ``stop_advertising`` pops ``app.advertisements`` (erroring if empty), so we
+    stop first only when there's something to stop, then start fresh.
+    """
+    app = server.app
+    adapter = server.adapter
+    if app.advertisements:
+        try:
+            await app.stop_advertising(adapter)
+        except Exception as e:
+            log.debug("stop_advertising during re-advertise failed (ignored): %s", e)
+    try:
+        await app.start_advertising(adapter)
+        log.info("re-advertising as %r resumed", _ADVERT_NAME)
+    except Exception as e:
+        log.warning("start_advertising failed, will retry next poll: %s", e)
+
+
+async def _advertising_watchdog(server, accumulator: MatchAccumulator,
+                                stop_event: "asyncio.Event") -> None:
+    """Keep a connectable advert alive whenever no central is connected.
+
+    Reads the authoritative ``org.bluez.Device1.Connected`` state (not bless's
+    notify-subscription proxy) every few seconds. When nothing is connected and the
+    adapter isn't advertising, it re-advertises — covering both reconnect-after-
+    device-switch and recovery from a silently dropped (half-open) link, which BlueZ
+    surfaces by flipping ``Connected`` to false after its supervision timeout.
+
+    The accumulator is intentionally left untouched: a brief link blip must not wipe
+    a live match (the phone re-sends its init tokens on reconnect).
+    """
+    prev_connected = 0
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(),
+                                   timeout=_WATCHDOG_POLL_SECONDS)
+            break  # stop_event set -> shut down promptly
+        except asyncio.TimeoutError:
+            pass  # normal: time for the next poll
+
+        try:
+            connected = await count_connected_devices(server.bus)
+        except Exception as e:
+            log.debug("watchdog: could not read device state (ignored): %s", e)
+            continue
+
+        if connected != prev_connected:
+            if connected > prev_connected:
+                log.info("BLE central connected (now %d connected)", connected)
+            else:
+                log.info("BLE central disconnected (now %d connected)", connected)
+            prev_connected = connected
+
+        if connected == 0:
+            try:
+                advertising = await server.is_advertising()
+            except Exception as e:
+                log.debug("watchdog: is_advertising failed (ignored): %s", e)
+                advertising = True  # don't thrash on a transient read error
+            if not advertising:
+                log.info("no device connected and not advertising -> re-advertising")
+                await _safe_readvertise(server)
 
 
 async def run_peripheral(accumulator: MatchAccumulator,
@@ -100,11 +175,29 @@ async def run_peripheral(accumulator: MatchAccumulator,
     await server.start()
     log.info("BLE peripheral advertising as %r (service %s)",
              _ADVERT_NAME, T.SERVICE_UUID)
+
+    # Make sure the adapter is powered, pairable and discoverable. Best-effort.
+    try:
+        await ensure_adapter_hygiene(server.adapter)
+    except Exception as e:
+        log.warning("adapter hygiene setup failed (continuing): %s", e)
+
+    watchdog = None
     try:
         if stop_event is None:
             stop_event = asyncio.Event()
+        watchdog = asyncio.create_task(
+            _advertising_watchdog(server, accumulator, stop_event),
+            name="ble-advertising-watchdog",
+        )
         await stop_event.wait()
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
+            try:
+                await watchdog
+            except (asyncio.CancelledError, Exception):
+                pass
         await server.stop()
         if disc_fp is not None:
             disc_fp.close()
