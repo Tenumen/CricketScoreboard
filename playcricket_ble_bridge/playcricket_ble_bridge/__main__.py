@@ -51,6 +51,10 @@ def main(argv=None) -> int:
                     help="Name fragment that identifies our club among the app's "
                          "batting/fielding team names, so its real name maps to the "
                          "home slot (case-insensitive; default: 'Aston')")
+    ap.add_argument("--our-team-display-name", default="Aston on Trent",
+                    help="Fallback name published into the home slot when the app "
+                         "sends only the opponent's name (no hint match), e.g. after "
+                         "a reconnect drops our batting-team name (default: 'Aston on Trent')")
     ap.add_argument("--discovery-log",
                     default=os.environ.get("BRIDGE_DISCOVERY_LOG", "discovery.log"),
                     help="Append every received BLE token here (default: ./discovery.log)")
@@ -65,7 +69,8 @@ def main(argv=None) -> int:
     log = logging.getLogger("playcricket_ble_bridge")
 
     accumulator = MatchAccumulator(our_club_id=args.our_club_id,
-                                   our_team_name=args.our_team_name)
+                                   our_team_name=args.our_team_name,
+                                   home_display_name=args.our_team_display_name)
     _start_http(accumulator, args.host, args.port, allow_inject=args.allow_inject)
     log.info("HTTP server listening on http://%s:%d", args.host, args.port)
     log.info("  result_summary: http://%s:%d/api/v2/result_summary.json", args.host, args.port)

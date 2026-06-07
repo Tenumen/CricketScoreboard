@@ -126,6 +126,57 @@ def test_positional_fallback_when_no_hint_match():
     assert snap.away_team_name == "Melbourne 1st XI"
 
 
+def test_only_opponent_name_publishes_home_display_fallback():
+    """The app sent only the fielding (opponent) name — no BTN for our side
+    (e.g. it didn't re-push the batting-team name after a reconnect). Since the
+    one name we got isn't us, publish the configured home display name so the
+    splash isn't blank."""
+    acc = MatchAccumulator()
+    acc.apply("FTN", "Away Test")                  # only the opponent's name
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston on Trent"
+    assert snap.away_team_name == "Away Test"
+
+
+def test_only_opponent_name_via_btn_also_falls_back():
+    """Same fallback when the lone name arrives as BTN instead of FTN."""
+    acc = MatchAccumulator()
+    acc.apply("BTN", "Melbourne 1st XI")           # only name, not us
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston on Trent"
+    assert snap.away_team_name == "Melbourne 1st XI"
+
+
+def test_real_home_name_overrides_display_fallback():
+    """The fallback is provisional: once our real (app-sent) name arrives it
+    replaces the configured display name."""
+    acc = MatchAccumulator()
+    acc.apply("FTN", "Away Test")                  # fallback kicks in
+    assert acc.snapshot().home_team_name == "Aston on Trent"
+    acc.apply("BTN", "Aston on Trent Village CC")  # our real name turns up
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston on Trent Village CC"
+    assert snap.away_team_name == "Away Test"
+
+
+def test_two_opponent_names_do_not_trigger_display_fallback():
+    """Both names present and neither is us (a neutral fixture) must NOT inject
+    our display name — the positional fallback still applies."""
+    acc = MatchAccumulator()
+    acc.apply("BTN", "Repton CC")
+    acc.apply("FTN", "Melbourne 1st XI")
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Repton CC"      # not "Aston on Trent"
+    assert snap.away_team_name == "Melbourne 1st XI"
+
+
+def test_custom_home_display_name():
+    """--our-team-display-name overrides the published fallback name."""
+    acc = MatchAccumulator(home_display_name="Aston on Trent Sunday XI")
+    acc.apply("FTN", "Away Test")
+    assert acc.snapshot().home_team_name == "Aston on Trent Sunday XI"
+
+
 def test_home_away_stable_across_innings_flip():
     """Once set from innings 1, the home/away labels do not re-swap when the
     batting side flips for innings 2."""

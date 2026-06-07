@@ -29,6 +29,14 @@ from . import tokens as T
 # the displayed names always come from the app.
 DEFAULT_OUR_TEAM_HINT = "Aston"
 
+# Display name published into the home slot ONLY as a fallback, when the app
+# sent exactly one team name and it clearly isn't us (no hint match) — i.e. the
+# opponent's name arrived but our own (batting-team) name never did, which the
+# app does after a reconnect since it doesn't re-push unchanged characteristics.
+# Overridable via --our-team-display-name. The real app-sent name always wins
+# when it arrives; this is never used while both names are known.
+DEFAULT_HOME_DISPLAY_NAME = "Aston on Trent"
+
 
 @dataclass
 class Bat:
@@ -119,6 +127,10 @@ class MatchState:
     # Non-serialised: fragment that identifies our club so its real (app-sent)
     # name maps to the home slot. Set from --our-team-name at construction.
     _our_team_hint: str = DEFAULT_OUR_TEAM_HINT
+    # Non-serialised: fallback name for the home slot when only the opponent's
+    # name arrives (see DEFAULT_HOME_DISPLAY_NAME). Set from
+    # --our-team-display-name at construction.
+    _home_display_name: str = DEFAULT_HOME_DISPLAY_NAME
 
 
 def _parse_overs(value: str) -> str:
@@ -244,13 +256,16 @@ class MatchAccumulator:
     bumps the generation counter; snapshot() returns the current state."""
 
     def __init__(self, our_club_id: int = 0,
-                 our_team_name: str = DEFAULT_OUR_TEAM_HINT):
+                 our_team_name: str = DEFAULT_OUR_TEAM_HINT,
+                 home_display_name: str = DEFAULT_HOME_DISPLAY_NAME):
         self._lock = RLock()
         self._state = MatchState()
         self._state.home_club_id   = our_club_id
         # home/away team names are learned from the app's BTN/FTN tokens; only
         # the hint that picks which side is "ours" is configured here.
         self._state._our_team_hint = (our_team_name or "").strip()
+        # Fallback home name when only the opponent's name is sent.
+        self._state._home_display_name = (home_display_name or "").strip()
         self._generation = 0
         self._unknown_codes: dict[str, int] = {}
 
@@ -337,9 +352,11 @@ class MatchAccumulator:
         with self._lock:
             our_club_id = self._state.home_club_id
             our_team_hint = self._state._our_team_hint
+            home_display_name = self._state._home_display_name
             self._state = MatchState()
             self._state.home_club_id = our_club_id
             self._state._our_team_hint = our_team_hint
+            self._state._home_display_name = home_display_name
             self._generation += 1
             return {"generation": self._generation}
 
@@ -542,6 +559,16 @@ def _assign_home_away(s: MatchState) -> bool:
             home, away = bat_first, other
         elif other_match and not bat_match:
             home, away = other, bat_first
+    if not home and not away and hint:
+        # Single-name fallback: the app sometimes sends only one of BTN/FTN
+        # (after a reconnect it doesn't re-push the unchanged batting-team
+        # name). If the one name we did get is clearly the opponent — exactly
+        # one side known and it has no hint match — the missing side must be
+        # us, so publish our configured display name rather than a blank.
+        only_one_known = bool(bat_first) != bool(other)
+        known = bat_first or other
+        if only_one_known and hint not in known.casefold():
+            home, away = (s._home_display_name or "").strip(), known
     if not home and not away:
         # Positional fallback: team batting first is home.
         home, away = bat_first, other
