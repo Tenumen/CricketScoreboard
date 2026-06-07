@@ -1,7 +1,10 @@
 [Unit]
 Description=Play-Cricket Scorer BLE bridge (Pixel 9a -> scoreboard24)
-After=bluetooth.service network-online.target
-Wants=bluetooth.service network-online.target
+# Needs bluetooth (BLE peripheral mode) but NOT network-online: data arrives
+# over BLE and is served only on 127.0.0.1, so there are zero outbound calls.
+# Dropping the network-online wait removes ~10s from boot. See install_pi.sh.
+After=bluetooth.service
+Wants=bluetooth.service
 
 [Service]
 Type=simple

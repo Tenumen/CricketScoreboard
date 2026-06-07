@@ -46,7 +46,25 @@ systemctl daemon-reload
 echo "→ systemctl enable --now scoreboard24.service"
 systemctl enable --now scoreboard24.service
 
-# 5. Status hint.
+# 5. Boot-speedup (idempotent). Nothing on this Pi needs the network to be
+#    "online" before it starts — the scoreboard talks to the bridge over
+#    localhost and the bridge serves only on 127.0.0.1 — and the box runs
+#    headless. So we strip the boot-time waits that bought us nothing:
+#      * NetworkManager-wait-online blocked ~10s waiting for WiFi/DHCP (made
+#        worse by the unplugged eth0 autoconnect) and gated everything behind
+#        network-online.target. WiFi still associates in the background.
+#      * ModemManager probes for a (non-existent) cellular modem, ~2s.
+#      * graphical.target pulled in lightdm/X with no display to drive.
+#    Net effect measured on a Pi 3B: ~23.7s -> ~15.3s boot, panel lit ~10s
+#    sooner. Revert any of these with the matching enable/set-default command.
+echo "→ boot speedup: disable network-online wait + ModemManager, drop desktop"
+systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+systemctl disable ModemManager.service              2>/dev/null || true
+if [[ "$(systemctl get-default)" != "multi-user.target" ]]; then
+    systemctl set-default multi-user.target
+fi
+
+# 6. Status hint.
 echo
 echo "Done. Useful commands:"
 echo "  systemctl status scoreboard24"

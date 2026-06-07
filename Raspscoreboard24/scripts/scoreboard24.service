@@ -1,7 +1,9 @@
 [Unit]
 Description=Aston on Trent VCC scoreboard24
-After=network-online.target
-Wants=network-online.target
+# NOTE: deliberately NOT ordered after network-online.target. The scoreboard
+# only ever talks to the BLE bridge over localhost (127.0.0.1), so waiting for
+# the LAN/WiFi to be "online" added ~10s of dead boot time. Starting as soon as
+# basic.target is up lights the panel ~10s sooner. See scripts/install_pi.sh.
 
 [Service]
 Type=simple
