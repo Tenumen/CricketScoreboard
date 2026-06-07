@@ -1,0 +1,18 @@
+[Unit]
+Description=Bluetooth adapter boot watchdog (recover Realtek RTL8761B firmware-load failures)
+# Runs after bluetoothd is up but BEFORE the bridge, so the bridge only starts
+# once a healthy adapter is confirmed. On a normal boot the script sees a healthy
+# adapter and exits in ~1s, adding no meaningful delay. See bt_adapter_watchdog.sh.
+After=bluetooth.service
+Wants=bluetooth.service
+Before=playcricket-ble-bridge.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/home/tenumen/scoreboard24/scripts/bt_adapter_watchdog.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

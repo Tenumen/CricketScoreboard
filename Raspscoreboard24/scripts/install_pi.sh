@@ -14,10 +14,22 @@ fi
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 STATE_DIR="/var/lib/scoreboard24"
-UNIT_SRC="$REPO_DIR/scripts/scoreboard24.service"
-UNIT_DST="/etc/systemd/system/scoreboard24.service"
 
 echo "Repo: $REPO_DIR"
+
+# Install a systemd unit from scripts/, patching the template's default repo
+# path if this checkout lives elsewhere than /home/tenumen/scoreboard24.
+install_unit() {
+    local name="$1"
+    local src="$REPO_DIR/scripts/$name"
+    local dst="/etc/systemd/system/$name"
+    echo "→ installing $dst"
+    if [[ "$REPO_DIR" != "/home/tenumen/scoreboard24" ]]; then
+        sed -e "s|/home/tenumen/scoreboard24|$REPO_DIR|g" "$src" > "$dst"
+    else
+        install -m 0644 "$src" "$dst"
+    fi
+}
 
 # 1. State directory (rollback target + update log live here).
 echo "→ creating $STATE_DIR"
@@ -30,21 +42,23 @@ install -d -m 0755 "$STATE_DIR"
 echo "→ chmod +x scripts/*.sh scripts/*.py"
 chmod +x "$REPO_DIR"/scripts/*.sh "$REPO_DIR"/scripts/*.py
 
-# 3. Install the systemd unit. Patch WorkingDirectory/ExecStart if the repo
-#    isn't at /home/tenumen/scoreboard24 (the template default).
-echo "→ installing $UNIT_DST"
-if [[ "$REPO_DIR" != "/home/tenumen/scoreboard24" ]]; then
-    sed -e "s|/home/tenumen/scoreboard24|$REPO_DIR|g" "$UNIT_SRC" > "$UNIT_DST"
-else
-    install -m 0644 "$UNIT_SRC" "$UNIT_DST"
-fi
+# 3. Install the systemd units: the scoreboard wall, the BT adapter boot
+#    watchdog, and the BLE bridge. The watchdog is ordered before the bridge so
+#    the bridge only starts once a healthy BT adapter is confirmed.
+install_unit scoreboard24.service
+install_unit bt-adapter-watchdog.service
+install_unit playcricket-ble-bridge.service
 
-# 4. Reload + enable + start.
+# 4. Reload + enable. scoreboard24 and the watchdog start now; the bridge is
+#    only enabled (not restarted) so a running match isn't interrupted — its new
+#    ordering takes effect on the next start/boot.
 echo "→ systemctl daemon-reload"
 systemctl daemon-reload
 
-echo "→ systemctl enable --now scoreboard24.service"
+echo "→ enabling services"
 systemctl enable --now scoreboard24.service
+systemctl enable --now bt-adapter-watchdog.service
+systemctl enable playcricket-ble-bridge.service
 
 # 5. Boot-speedup (idempotent). Nothing on this Pi needs the network to be
 #    "online" before it starts — the scoreboard talks to the bridge over

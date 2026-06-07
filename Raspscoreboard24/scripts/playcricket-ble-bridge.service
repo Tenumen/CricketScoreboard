@@ -5,6 +5,11 @@ Description=Play-Cricket Scorer BLE bridge (Pixel 9a -> scoreboard24)
 # Dropping the network-online wait removes ~10s from boot. See install_pi.sh.
 After=bluetooth.service
 Wants=bluetooth.service
+# Wait for the adapter watchdog to confirm/recover a healthy BT adapter before we
+# start (the USB dongle intermittently fails its firmware load on boot). This
+# avoids the "No adapter named hci0" crash-loop. See bt_adapter_watchdog.sh.
+After=bt-adapter-watchdog.service
+Wants=bt-adapter-watchdog.service
 
 [Service]
 Type=simple

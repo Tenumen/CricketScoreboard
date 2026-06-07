@@ -289,6 +289,7 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
 <div class="section">Connection</div>
 <div class="actions">
   <button id="btn-reset-bt" class="danger">Reset Bluetooth</button>
+  <button id="btn-forget-bt" class="danger">Forget paired devices</button>
 </div>
 
 <div class="section">Internal</div>
@@ -532,6 +533,28 @@ document.getElementById('btn-reset-bt').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('btn-forget-bt').addEventListener('click', async () => {
+  if (!confirm('Forget all paired phones/tablets on the scoreboard?\n\n'
+             + 'Use this if a device says it is connected but no score shows, or '
+             + 'it can see the scoreboard but will not connect (a stale pairing). '
+             + 'This clears the scoreboard side only and disconnects any device.\n\n'
+             + 'IMPORTANT: you must ALSO "Forget" the scoreboard in the phone/'
+             + 'tablet Bluetooth settings, then pair again — clearing one side '
+             + 'alone leaves a mismatch.')) return;
+  try {
+    const r = await fetch('/api/forget-bt', { method: 'POST' });
+    if (r.status === 202) {
+      showBanner('Scoreboard-side pairings cleared. Now "Forget" the scoreboard '
+               + 'on the phone/tablet and pair again, then re-open the scorer '
+               + 'app’s external-scoreboard connection.');
+    } else {
+      showBanner(`Forget-devices request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Forget-devices request failed: ' + err.message, true);
+  }
+});
+
 refresh();
 setInterval(refresh, 2000);
 </script>
@@ -663,6 +686,18 @@ DebugServer::DebugServer(const SharedMatchState* state,
     server_->Post("/api/reset-bt", [this](const httplib::Request&, httplib::Response& res) {
         const std::string script = scripts_dir_ + "/reset_bluetooth.sh";
         std::fprintf(stderr, "POST /api/reset-bt → spawning %s\n", script.c_str());
+        if (!SpawnDetachedScript(script)) {
+            res.status = 500;
+            res.set_content("{\"error\":\"fork failed\"}", "application/json");
+            return;
+        }
+        res.status = 202;
+        res.set_content("{\"started\":true}", "application/json");
+    });
+
+    server_->Post("/api/forget-bt", [this](const httplib::Request&, httplib::Response& res) {
+        const std::string script = scripts_dir_ + "/forget_bluetooth.sh";
+        std::fprintf(stderr, "POST /api/forget-bt → spawning %s\n", script.c_str());
         if (!SpawnDetachedScript(script)) {
             res.status = 500;
             res.set_content("{\"error\":\"fork failed\"}", "application/json");
