@@ -37,18 +37,32 @@ sudo shred -u /run/mailer-setup/mailer_creds.json
 sudo rm -rf /run/mailer-setup
 
 # 4. Confirm decrypt works (prints the first 40 bytes of the JSON).
-sudo systemd-creds decrypt /etc/credstore.encrypted/scoreboard24-mailer.cred - \
+#    --name= is REQUIRED here: when output goes to stdout (-), systemd-creds
+#    otherwise derives the expected name from the filename *including* the
+#    .cred extension and refuses with a "does not match filename" error.
+sudo systemd-creds decrypt --name=scoreboard24-mailer \
+    /etc/credstore.encrypted/scoreboard24-mailer.cred - \
     | head -c 40 ; echo
 
-# 5. Reload + restart so the LoadCredentialEncrypted= directive takes effect.
-sudo systemctl daemon-reload
-sudo systemctl restart scoreboard24.service
+# 5. Wire the credential into the unit and restart. The base unit does NOT
+#    hard-require the credential (that once crash-looped the board on a fresh
+#    boot). install_pi.sh detects the now-present .cred and adds the
+#    LoadCredentialEncrypted= drop-in, reloads, and restarts scoreboard24. It is
+#    idempotent and safe to re-run; it does not restart the BLE bridge.
+sudo bash /home/tenumen/scoreboard24/scripts/install_pi.sh
 ```
 
 The credential name passed to `--name=` (here `scoreboard24-mailer`) must
-match the credential ID in `scoreboard24.service`'s
-`LoadCredentialEncrypted=` directive, otherwise systemd will refuse to
+match the credential ID that `install_pi.sh` writes into the
+`LoadCredentialEncrypted=` drop-in, otherwise systemd will refuse to
 decrypt at unit start.
+
+> **How the wiring works.** `scoreboard24.service` itself carries no
+> `LoadCredentialEncrypted=`. `install_pi.sh` adds it via a drop-in
+> (`/etc/systemd/system/scoreboard24.service.d/10-mailer-cred.conf`) **only
+> when** `/etc/credstore.encrypted/scoreboard24-mailer.cred` exists. So the
+> board always boots even before the mailer is provisioned, and removing the
+> `.cred` then re-running `install_pi.sh` cleanly disables the mailer again.
 
 ## Dry-run verification
 

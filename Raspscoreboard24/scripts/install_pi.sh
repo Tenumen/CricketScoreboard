@@ -49,6 +49,42 @@ install_unit scoreboard24.service
 install_unit bt-adapter-watchdog.service
 install_unit playcricket-ble-bridge.service
 
+# 3a. Shutdown-mailer credential wiring (optional). The base scoreboard24.service
+#     unit deliberately does NOT hard-require the encrypted mailer credential:
+#     a hard LoadCredentialEncrypted= made systemd abort at step CREDENTIALS
+#     (exit 243) on any Pi where the credstore was never provisioned, which
+#     crash-looped the board on a cold boot (incident 2026-06-09). Instead we
+#     add LoadCredentialEncrypted= via a drop-in ONLY when the .cred exists;
+#     otherwise the mailer's ExecStopPost simply no-ops. This keeps install
+#     idempotent in both directions (provision the cred + re-run -> mailer on;
+#     remove the cred + re-run -> mailer off), and the board always boots.
+MAILER_CRED="/etc/credstore.encrypted/scoreboard24-mailer.cred"
+MAILER_DROPIN_DIR="/etc/systemd/system/scoreboard24.service.d"
+MAILER_DROPIN="$MAILER_DROPIN_DIR/10-mailer-cred.conf"
+mailer_changed=0
+if [[ -f "$MAILER_CRED" ]]; then
+    echo "→ mailer credential present; enabling LoadCredentialEncrypted drop-in"
+    install -d -m 0755 "$MAILER_DROPIN_DIR"
+    new_dropin="$(cat <<EOF
+[Service]
+# Written by install_pi.sh because $MAILER_CRED exists. Remove the cred and
+# re-run install_pi.sh to delete this drop-in. See scripts/setup_mailer_creds.md.
+LoadCredentialEncrypted=scoreboard24-mailer:$MAILER_CRED
+EOF
+)"
+    if [[ ! -f "$MAILER_DROPIN" || "$(cat "$MAILER_DROPIN")" != "$new_dropin" ]]; then
+        printf '%s\n' "$new_dropin" > "$MAILER_DROPIN"
+        mailer_changed=1
+    fi
+else
+    echo "→ no mailer credential at $MAILER_CRED; mailer disabled (board still boots)"
+    if [[ -f "$MAILER_DROPIN" ]]; then
+        rm -f "$MAILER_DROPIN"
+        rmdir --ignore-fail-on-non-empty "$MAILER_DROPIN_DIR" 2>/dev/null || true
+        mailer_changed=1
+    fi
+fi
+
 # 4. Reload + enable. scoreboard24 and the watchdog start now; the bridge is
 #    only enabled (not restarted) so a running match isn't interrupted — its new
 #    ordering takes effect on the next start/boot.
@@ -59,6 +95,16 @@ echo "→ enabling services"
 systemctl enable --now scoreboard24.service
 systemctl enable --now bt-adapter-watchdog.service
 systemctl enable playcricket-ble-bridge.service
+
+# 4a. If the mailer drop-in changed, restart scoreboard24 so the credential
+#     wiring takes effect (enable --now does not restart an already-running
+#     unit). try-restart is a no-op if it isn't running. Only scoreboard24 is
+#     touched -- the BLE bridge is never restarted here, so a live match keeps
+#     its generation/state.
+if [[ "$mailer_changed" -eq 1 ]]; then
+    echo "→ mailer wiring changed; restarting scoreboard24"
+    systemctl try-restart scoreboard24.service
+fi
 
 # 5. Boot-speedup (idempotent). Nothing on this Pi needs the network to be
 #    "online" before it starts — the scoreboard talks to the bridge over

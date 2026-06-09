@@ -21,12 +21,19 @@ StandardError=journal
 # tree and finish cleanly.
 KillMode=process
 
-# Shutdown mailer: ExecStopPost runs after the main process exits regardless
-# of exit code, so it covers manual stop, crash, admin-console shutdown, and
-# OS poweroff. TimeoutStopSec gives the mailer's 20 s SMTP attempt a 45 s
-# enclosing budget. See scripts/setup_mailer_creds.md for the credstore
-# provisioning that backs LoadCredentialEncrypted=.
-LoadCredentialEncrypted=scoreboard24-mailer:/etc/credstore.encrypted/scoreboard24-mailer.cred
+# Shutdown mailer (optional): ExecStopPost runs after the main process exits
+# regardless of exit code, so it covers manual stop, crash, admin-console
+# shutdown, and OS poweroff. TimeoutStopSec gives the mailer's 20 s SMTP
+# attempt a 45 s enclosing budget.
+#
+# The encrypted credential is deliberately NOT required here. install_pi.sh adds
+# LoadCredentialEncrypted= via a drop-in (scoreboard24.service.d/) ONLY when
+# /etc/credstore.encrypted/scoreboard24-mailer.cred exists. Without it,
+# shutdown_mailer.py exits 0 (no-op), so the board always boots even before the
+# mailer is provisioned. A hard LoadCredentialEncrypted= here once crash-looped
+# the board on a fresh cold boot (exit 243/CREDENTIALS, incident 2026-06-09):
+# systemd aborts at step CREDENTIALS before ExecStart if the cred is missing.
+# See scripts/setup_mailer_creds.md.
 ExecStopPost=/usr/bin/python3 /home/tenumen/scoreboard24/scripts/shutdown_mailer.py
 TimeoutStopSec=45s
 
