@@ -90,12 +90,25 @@ PollConfig LoadConfig(const std::string& path) {
             cfg.sim_endpoint_send_on_change_only = j["sim_endpoint_send_on_change_only"].get<bool>();
         if (j.contains("repo_dir")    && j["repo_dir"].is_string())    cfg.repo_dir    = j["repo_dir"].get<std::string>();
         if (j.contains("scripts_dir") && j["scripts_dir"].is_string()) cfg.scripts_dir = j["scripts_dir"].get<std::string>();
+        if (j.contains("display_pwm_bits")              && j["display_pwm_bits"].is_number())              cfg.display_pwm_bits              = j["display_pwm_bits"].get<int>();
+        if (j.contains("display_pwm_dither_bits")       && j["display_pwm_dither_bits"].is_number())       cfg.display_pwm_dither_bits       = j["display_pwm_dither_bits"].get<int>();
+        if (j.contains("display_limit_refresh_rate_hz") && j["display_limit_refresh_rate_hz"].is_number()) cfg.display_limit_refresh_rate_hz = j["display_limit_refresh_rate_hz"].get<int>();
+        if (j.contains("display_brightness")            && j["display_brightness"].is_number())            cfg.display_brightness            = j["display_brightness"].get<int>();
+        if (j.contains("display_gpio_slowdown")         && j["display_gpio_slowdown"].is_number())         cfg.display_gpio_slowdown         = j["display_gpio_slowdown"].get<int>();
+        if (j.contains("display_show_refresh_rate")     && j["display_show_refresh_rate"].is_boolean())    cfg.display_show_refresh_rate     = j["display_show_refresh_rate"].get<bool>();
     } catch (const std::exception& e) {
         std::fprintf(stderr, "Config '%s' parse error: %s — using defaults.\n", path.c_str(), e.what());
     }
     // Floor lowered from 5s -> 1s so the sim can poll fast while a user is
     // scoring; real-Pi configs keep their 30s explicit value.
     if (cfg.poll_interval_secs < 1) cfg.poll_interval_secs = 1;
+    // Defensive clamps so a fat-fingered config can't produce an invalid
+    // matrix init (the library asserts on out-of-range pwm_bits/brightness).
+    if (cfg.display_brightness < 1)   cfg.display_brightness = 1;
+    if (cfg.display_brightness > 100) cfg.display_brightness = 100;
+    if (cfg.display_pwm_bits   < 1)   cfg.display_pwm_bits   = 1;
+    if (cfg.display_pwm_bits   > 11)  cfg.display_pwm_bits   = 11;
+    if (cfg.display_pwm_dither_bits < 0) cfg.display_pwm_dither_bits = 0;
     return cfg;
 }
 

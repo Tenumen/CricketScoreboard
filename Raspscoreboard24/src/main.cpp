@@ -174,14 +174,18 @@ int main(int argc, char *argv[]) {
     // same options but only reads brightness/pwm/gpio_slowdown from them.
     PollConfig cfg = cricketboard::LoadConfig(config_path);
 
+    // Display tuning comes from config (LoadConfig fills today's defaults when
+    // the keys are absent, so this is backward-compatible). multiplexing and
+    // hardware_mapping are hardware topology, not flicker knobs, so they keep
+    // the DisplayOptions struct defaults (1 / "regular").
     DisplayOptions display_opts;
-    display_opts.brightness            = 100;
-    display_opts.pwm_bits              = 6;
-    display_opts.gpio_slowdown         = 3;
-    display_opts.limit_refresh_rate_hz = 120;
-    display_opts.multiplexing          = 1;
-    display_opts.hardware_mapping      = "regular";
-    display_opts.sim_endpoint          = cfg.sim_endpoint;
+    display_opts.brightness              = cfg.display_brightness;
+    display_opts.pwm_bits                = cfg.display_pwm_bits;
+    display_opts.pwm_dither_bits         = cfg.display_pwm_dither_bits;
+    display_opts.gpio_slowdown           = cfg.display_gpio_slowdown;
+    display_opts.limit_refresh_rate_hz   = cfg.display_limit_refresh_rate_hz;
+    display_opts.show_refresh_rate       = cfg.display_show_refresh_rate;
+    display_opts.sim_endpoint            = cfg.sim_endpoint;
     display_opts.sim_send_on_change_only = cfg.sim_endpoint_send_on_change_only;
 
     auto display = CreateDisplay(&argc, &argv, display_opts);

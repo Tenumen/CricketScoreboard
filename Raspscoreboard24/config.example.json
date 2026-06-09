@@ -15,5 +15,13 @@
   "debug_server_password": "changeme",
 
   "repo_dir":    "/home/tenumen/scoreboard24",
-  "scripts_dir": "/home/tenumen/scoreboard24/scripts"
+  "scripts_dir": "/home/tenumen/scoreboard24/scripts",
+
+  "_display_help": "LED panel tuning (hub75 only). All optional; omit to keep defaults (pwm_bits=6, dither=0, cap=120Hz, brightness=100, slowdown=3). Lower pwm_bits => higher refresh => interrupt-induced flicker less visible, but fewer brightness levels. dither_bits 1-2 recovers perceived depth. limit_refresh_rate_hz<=0 = uncapped. Set show_refresh_rate=true to print measured Hz to the journal while tuning.",
+  "display_pwm_bits": 6,
+  "display_pwm_dither_bits": 0,
+  "display_limit_refresh_rate_hz": 120,
+  "display_brightness": 100,
+  "display_gpio_slowdown": 3,
+  "display_show_refresh_rate": false
 }

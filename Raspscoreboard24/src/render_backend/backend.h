@@ -23,10 +23,12 @@ struct DisplayOptions {
     // Common — set by main(), used by the hub75 backend; ignored by headless.
     int brightness            = 100;
     int pwm_bits              = 6;
+    int pwm_dither_bits       = 0;
     int gpio_slowdown         = 3;
     int limit_refresh_rate_hz = 120;
     int multiplexing          = 1;
     std::string hardware_mapping = "regular";
+    bool show_refresh_rate    = false;  // print measured Hz to stderr/journal
 
     // Headless / sim — used by the headless backend AND optionally by the
     // hub75 backend when built with EMIT_FRAMES=1 to mirror frames to a

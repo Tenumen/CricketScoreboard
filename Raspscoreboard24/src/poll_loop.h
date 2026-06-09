@@ -40,6 +40,17 @@ struct PollConfig {
     // on the Pi. Defaults match what install_pi.sh configures.
     std::string repo_dir    = "/home/tenumen/scoreboard24";
     std::string scripts_dir = "/home/tenumen/scoreboard24/scripts";
+
+    // --- LED panel tuning (hub75 backend only; ignored by headless) ---------
+    // Optional; absent keys keep the historical hard-coded values below. These
+    // trade colour depth for a higher panel refresh rate, which makes the
+    // brief interrupt-induced flicker (USB-BT FIQ etc.) less perceptible.
+    int  display_pwm_bits              = 6;     // lower => faster refresh, fewer brightness levels
+    int  display_pwm_dither_bits       = 0;     // 1-2 recovers perceived depth at high refresh
+    int  display_limit_refresh_rate_hz = 120;   // <=0 = uncapped
+    int  display_brightness            = 100;   // 1..100
+    int  display_gpio_slowdown         = 3;     // Pi-3 timing
+    bool display_show_refresh_rate     = false; // print measured Hz to journal
 };
 
 // Read config from a JSON file. On failure, returns a default-constructed

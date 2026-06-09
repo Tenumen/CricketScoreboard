@@ -80,8 +80,9 @@ std::unique_ptr<IDisplay> CreateDisplay(int *argc, char ***argv,
     matrix_options.parallel     = kParallelChains;
     matrix_options.brightness   = opts.brightness;
     matrix_options.pwm_bits     = opts.pwm_bits;
+    matrix_options.pwm_dither_bits = opts.pwm_dither_bits;
     matrix_options.multiplexing = opts.multiplexing;
-    matrix_options.show_refresh_rate     = false;
+    matrix_options.show_refresh_rate     = opts.show_refresh_rate;
     matrix_options.limit_refresh_rate_hz = opts.limit_refresh_rate_hz;
 
     RuntimeOptions runtime_options;
