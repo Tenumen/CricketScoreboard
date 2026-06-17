@@ -203,7 +203,7 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Raspscoreboard24 debug</title>
+<title>Aston on Trent Scoreboard Console</title>
 <style>
   :root { color-scheme: dark; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -237,80 +237,115 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
   .banner.hidden { display:none; }
   .build-match { color:#7d7; }
   .build-mismatch { color:#fb8; }
+  .tabs { display:flex; gap:6px; margin:0 0 12px; border-bottom:1px solid #333; }
+  .tab { padding:9px 16px; font-size:14px; border:none; border-bottom:2px solid transparent;
+         background:none; color:#9aa; border-radius:0; cursor:pointer; }
+  .tab:hover:not(.active) { color:#cde; }
+  .tab.active { color:#eee; border-bottom-color:#4a9; }
+  .tab-panel.hidden { display:none; }
+  input[type="text"] { width:100%; box-sizing:border-box; padding:8px 10px;
+         font-size:14px; border:1px solid #555; background:#222; color:#eee;
+         border-radius:4px; }
+  .hint { color:#9aa; font-size:12px; margin-top:8px; }
 </style>
 </head>
 <body>
-<h1>Raspscoreboard24 debug</h1>
+<h1>Aston on Trent Scoreboard Console</h1>
 <div class="meta">
   <span id="updated">connecting…</span>
   <span style="margin:0 6px">·</span>
   <span class="phase" id="phase">—</span>
 </div>
 
-<div class="section">Match identity</div>
-<table>
-  <tr><th>Home club</th><td id="home_club_name">—</td></tr>
-  <tr><th>Home team</th><td id="home_team_name">—</td></tr>
-  <tr><th>Away club</th><td id="away_club_name">—</td></tr>
-  <tr><th>Away team</th><td id="away_team_name">—</td></tr>
-</table>
-
-<div class="section">Live state</div>
-<table>
-  <tr><th>Runs</th>        <td id="runs">—</td></tr>
-  <tr><th>Wickets</th>     <td id="wkts">—</td></tr>
-  <tr><th>Overs</th>       <td id="overs">—</td></tr>
-  <tr><th>Chasing</th>     <td id="chasing">—</td></tr>
-  <tr><th>Target</th>      <td id="target">—</td></tr>
-  <tr><th>Bat 1</th>       <td id="bat1">—</td></tr>
-  <tr><th>Bat 2</th>       <td id="bat2">—</td></tr>
-  <tr><th>On strike</th>   <td id="on_strike">—</td></tr>
-  <tr><th>Last innings</th><td id="last_inn">—</td></tr>
-  <tr><th>Total extras</th><td id="total_extras">—</td></tr>
-</table>
-
-<div class="section">Result</div>
-<table>
-  <tr><th>Description</th><td id="result_description">—</td></tr>
-  <tr><th>Innings 1</th>  <td id="inn1">—</td></tr>
-  <tr><th>Innings 2</th>  <td id="inn2">—</td></tr>
-</table>
-<div class="actions">
-  <button id="btn-finish">Match finished</button>
-  <button id="btn-reopen">Re-open match</button>
+<div class="tabs">
+  <button class="tab active" data-tab="companion">Scoreboard Companion</button>
+  <button class="tab" data-tab="admin">Admin Console</button>
 </div>
 
-<div class="section">Display control</div>
-<div class="actions">
-  <button id="btn-blank">Blank scoreboard</button>
-  <button id="btn-clear" class="danger">Clear / reset to logo</button>
-</div>
-
-<div class="section">Connection</div>
-<div class="actions">
-  <button id="btn-reset-bt" class="danger">Reset Bluetooth</button>
-  <button id="btn-forget-bt" class="danger">Forget paired devices</button>
-</div>
-
-<div class="section">Internal</div>
-<table>
-  <tr><th>Generation</th><td id="generation">—</td></tr>
-</table>
-
-<div class="section">Build</div>
-<table>
-  <tr><th>Build commit</th>   <td id="build_commit">—</td></tr>
-  <tr><th>HEAD commit</th>    <td id="head_commit">—</td></tr>
-  <tr><th>HEAD subject</th>   <td id="head_subject">—</td></tr>
-  <tr><th>Rollback target</th><td id="prev_commit">—</td></tr>
-</table>
-<div class="actions">
-  <button id="btn-update">Update from git</button>
-  <button id="btn-rollback" disabled>Roll back</button>
-  <button id="btn-reboot" class="danger">Reboot Pi</button>
-  <button id="btn-shutdown" class="danger">Shut down Pi</button>
-</div>
 <div id="action-banner" class="banner hidden"></div>
+
+<div class="tab-panel" id="tab-companion">
+
+  <div class="section">Match identity</div>
+  <table>
+    <tr><th>Home club</th><td id="home_club_name">—</td></tr>
+    <tr><th>Home team</th><td id="home_team_name">—</td></tr>
+    <tr><th>Away club</th><td id="away_club_name">—</td></tr>
+    <tr><th>Away team</th><td id="away_team_name">—</td></tr>
+  </table>
+
+  <div class="section">Team names (manual override)</div>
+  <table>
+    <tr><th>Home name</th><td><input id="in-home-name" type="text" placeholder="—"></td></tr>
+    <tr><th>Away name</th><td><input id="in-away-name" type="text" placeholder="—"></td></tr>
+  </table>
+  <div class="actions">
+    <button id="btn-set-names">Apply names</button>
+  </div>
+  <div class="hint">Type a name to override the scorer app for that side. Leave a
+    box blank and Apply to fall back to the app’s name (or “Team ?” until it arrives).</div>
+
+  <div class="section">Live state</div>
+  <table>
+    <tr><th>Runs</th>        <td id="runs">—</td></tr>
+    <tr><th>Wickets</th>     <td id="wkts">—</td></tr>
+    <tr><th>Overs</th>       <td id="overs">—</td></tr>
+    <tr><th>Chasing</th>     <td id="chasing">—</td></tr>
+    <tr><th>Target</th>      <td id="target">—</td></tr>
+    <tr><th>Bat 1</th>       <td id="bat1">—</td></tr>
+    <tr><th>Bat 2</th>       <td id="bat2">—</td></tr>
+    <tr><th>On strike</th>   <td id="on_strike">—</td></tr>
+    <tr><th>Last innings</th><td id="last_inn">—</td></tr>
+    <tr><th>Total extras</th><td id="total_extras">—</td></tr>
+  </table>
+
+  <div class="section">Result</div>
+  <table>
+    <tr><th>Description</th><td id="result_description">—</td></tr>
+    <tr><th>Innings 1</th>  <td id="inn1">—</td></tr>
+    <tr><th>Innings 2</th>  <td id="inn2">—</td></tr>
+  </table>
+  <div class="actions">
+    <button id="btn-finish">Match finished</button>
+    <button id="btn-reopen">Re-open match</button>
+  </div>
+
+  <div class="section">Display control</div>
+  <div class="actions">
+    <button id="btn-blank">Blank scoreboard</button>
+    <button id="btn-clear" class="danger">Clear / reset to logo</button>
+  </div>
+
+</div>
+
+<div class="tab-panel hidden" id="tab-admin">
+
+  <div class="section">Connection</div>
+  <div class="actions">
+    <button id="btn-reset-bt" class="danger">Reset Bluetooth</button>
+    <button id="btn-forget-bt" class="danger">Forget paired devices</button>
+  </div>
+
+  <div class="section">Internal</div>
+  <table>
+    <tr><th>Generation</th><td id="generation">—</td></tr>
+  </table>
+
+  <div class="section">Build</div>
+  <table>
+    <tr><th>Build commit</th>   <td id="build_commit">—</td></tr>
+    <tr><th>HEAD commit</th>    <td id="head_commit">—</td></tr>
+    <tr><th>HEAD subject</th>   <td id="head_subject">—</td></tr>
+    <tr><th>Rollback target</th><td id="prev_commit">—</td></tr>
+  </table>
+  <div class="actions">
+    <button id="btn-update">Update from git</button>
+    <button id="btn-rollback" disabled>Roll back</button>
+    <button id="btn-reboot" class="danger">Reboot Pi</button>
+    <button id="btn-shutdown" class="danger">Shut down Pi</button>
+  </div>
+
+</div>
 
 <script>
 function fmtInnings(inn) {
@@ -347,6 +382,11 @@ async function refresh() {
     set('home_team_name', s.home_team_name);
     set('away_club_name', s.away_club_name);
     set('away_team_name', s.away_team_name);
+
+    // Show the live names as placeholders so the operator sees what's on the
+    // wall without overwriting anything they're typing into the boxes.
+    document.getElementById('in-home-name').placeholder = s.home_team_name || '—';
+    document.getElementById('in-away-name').placeholder = s.away_team_name || '—';
 
     set('runs', s.runs);
     set('wkts', s.wkts);
@@ -513,6 +553,28 @@ document.getElementById('btn-clear').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('btn-set-names').addEventListener('click', async () => {
+  const home = document.getElementById('in-home-name').value.trim();
+  const away = document.getElementById('in-away-name').value.trim();
+  try {
+    const r = await fetch('/api/team-names', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ home_team_name: home, away_team_name: away }),
+    });
+    if (r.ok) {
+      const j = await r.json().catch(() => ({}));
+      const h = j.home_team_name || '—', a = j.away_team_name || '—';
+      showBanner(`Team names applied — home: ${h}, away: ${a}. ` +
+                 `Blank a box and Apply to revert to the app’s name.`);
+    } else {
+      showBanner(`Set-names request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Set-names request failed: ' + err.message, true);
+  }
+});
+
 document.getElementById('btn-reset-bt').addEventListener('click', async () => {
   if (!confirm('Reset the Bluetooth connection?\n\n'
              + 'Use this if the phone can no longer connect and the scoreboard '
@@ -554,6 +616,13 @@ document.getElementById('btn-forget-bt').addEventListener('click', async () => {
     showBanner('Forget-devices request failed: ' + err.message, true);
   }
 });
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  t.classList.add('active');
+  document.getElementById('tab-' + t.dataset.tab).classList.remove('hidden');
+}));
 
 refresh();
 setInterval(refresh, 2000);
@@ -748,6 +817,29 @@ DebugServer::DebugServer(const SharedMatchState* state,
     server_->Post("/api/clear", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
         std::fprintf(stderr, "POST /api/clear -> bridge /api/admin/reset\n");
         proxy_to_bridge("/api/admin/reset", res);
+    });
+
+    // Like proxy_to_bridge, but forwards the request body so the operator's
+    // typed team names reach the bridge (the names live there — see /api/state).
+    server_->Post("/api/team-names", [this](const httplib::Request& req, httplib::Response& res) {
+        std::fprintf(stderr, "POST /api/team-names -> bridge /api/admin/team-names\n");
+        if (bridge_base_url_.empty()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"bridge url not configured\"}", "application/json");
+            return;
+        }
+        httplib::Client cli(bridge_base_url_);
+        cli.set_connection_timeout(3, 0);
+        cli.set_read_timeout(3, 0);
+        auto up = cli.Post("/api/admin/team-names", req.body, "application/json");
+        if (!up) {
+            std::fprintf(stderr, "proxy /api/team-names -> bridge failed: no response\n");
+            res.status = 502;
+            res.set_content("{\"error\":\"bridge unreachable\"}", "application/json");
+            return;
+        }
+        res.status = up->status;
+        res.set_content(up->body, "application/json");
     });
 
     (void)kStateDir;  // currently only used by the scripts via env var

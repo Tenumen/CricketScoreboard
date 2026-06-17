@@ -23,19 +23,11 @@ from typing import List, Optional
 from . import tokens as T
 
 
-# Default fragment used to recognise our own club among the two team names
-# the app sends (BTN = batting team, FTN = fielding team). Overridable via
-# --our-team-name. It only decides which real name maps to the home slot;
-# the displayed names always come from the app.
-DEFAULT_OUR_TEAM_HINT = "Aston"
-
-# Display name published into the home slot ONLY as a fallback, when the app
-# sent exactly one team name and it clearly isn't us (no hint match) — i.e. the
-# opponent's name arrived but our own (batting-team) name never did, which the
-# app does after a reconnect since it doesn't re-push unchanged characteristics.
-# Overridable via --our-team-display-name. The real app-sent name always wins
-# when it arrives; this is never used while both names are known.
-DEFAULT_HOME_DISPLAY_NAME = "Aston on Trent"
+# Neutral placeholder shown for a team slot whose name has not been sent yet,
+# but only once a match is forming (the other side's real name is known). It is
+# NOT a club default masquerading as a real name — it makes "not received yet"
+# visible, and the real app-sent name replaces it the moment it arrives.
+PENDING_TEAM_NAME = "Team ?"
 
 
 @dataclass
@@ -115,6 +107,19 @@ class MatchState:
     match_date: str = ""
     innings: List[Innings] = field(default_factory=lambda: [Innings(innings_number=1)])
 
+    # Operator-typed name overrides from the admin console. When non-empty for a
+    # side, they take precedence over whatever the app sent for that side (see
+    # _assign_home_away); empty means "use the app's name / PENDING placeholder".
+    # On MatchState so reset() (which rebuilds MatchState) clears them with the
+    # rest of the game.
+    home_team_name_override: str = ""
+    away_team_name_override: str = ""
+
+    # NOTE: home/away are mapped purely positionally from innings 1 (side batting
+    # first = home, side fielding first = away). The team names always come
+    # straight from the app's BTN/FTN tokens — no hint matching or club defaults —
+    # unless the operator has typed a manual override.
+
     # Monotonic per-ball / per-wicket counters consumed by the C++ scoreboard
     # to trigger event splashes. Bumped from _h_cov / _h_lwk. The runs/wicket
     # flag describe only the most recent ball (or wicket); older balls are
@@ -123,14 +128,6 @@ class MatchState:
     last_ball_runs:      int  = 0
     last_ball_is_wicket: bool = False
     last_wicket_id:      int  = 0
-
-    # Non-serialised: fragment that identifies our club so its real (app-sent)
-    # name maps to the home slot. Set from --our-team-name at construction.
-    _our_team_hint: str = DEFAULT_OUR_TEAM_HINT
-    # Non-serialised: fallback name for the home slot when only the opponent's
-    # name arrives (see DEFAULT_HOME_DISPLAY_NAME). Set from
-    # --our-team-display-name at construction.
-    _home_display_name: str = DEFAULT_HOME_DISPLAY_NAME
 
 
 def _parse_overs(value: str) -> str:
@@ -225,8 +222,10 @@ def compute_result(s: MatchState, force: bool = False):
     inn1, inn2 = s.innings[0], s.innings[1]
     target = inn2.revised_target_runs or (inn1.runs + 1)
     wkts_all_out = max(s.players_per_side - 1, 1)
-    team_first = inn1.team_batting_name or "Team 1"
-    team_chase = inn2.team_batting_name or "Team 2"
+    # Operator manual names win here too. Home bats first (positional anchoring),
+    # so innings 1's batting side is home and innings 2's is away.
+    team_first = s.home_team_name_override or inn1.team_batting_name or "Team 1"
+    team_chase = s.away_team_name_override or inn2.team_batting_name or "Team 2"
 
     def chase_win() -> tuple[str, str]:
         in_hand = max(wkts_all_out - inn2.wickets, 0)
@@ -255,17 +254,12 @@ class MatchAccumulator:
     """Thread-safe holder for MatchState. apply() mutates under a lock and
     bumps the generation counter; snapshot() returns the current state."""
 
-    def __init__(self, our_club_id: int = 0,
-                 our_team_name: str = DEFAULT_OUR_TEAM_HINT,
-                 home_display_name: str = DEFAULT_HOME_DISPLAY_NAME):
+    def __init__(self, our_club_id: int = 0):
         self._lock = RLock()
         self._state = MatchState()
-        self._state.home_club_id   = our_club_id
-        # home/away team names are learned from the app's BTN/FTN tokens; only
-        # the hint that picks which side is "ours" is configured here.
-        self._state._our_team_hint = (our_team_name or "").strip()
-        # Fallback home name when only the opponent's name is sent.
-        self._state._home_display_name = (home_display_name or "").strip()
+        self._state.home_club_id = our_club_id
+        # home/away team names are learned directly from the app's BTN/FTN
+        # tokens and mapped positionally; nothing else about naming is configured.
         self._generation = 0
         self._unknown_codes: dict[str, int] = {}
 
@@ -346,17 +340,12 @@ class MatchAccumulator:
         latter matters because score handlers are forward-only (BTS uses
         max()), so a new 0/0 would never overwrite a stale total without this.
 
-        Preserves the configured home-club id and our-team hint (the same two
-        fields __init__ seeds) so home/away mapping still works on the next
-        game; everything else is discarded."""
+        Preserves the configured home-club id (the only field __init__ seeds);
+        everything else is discarded."""
         with self._lock:
             our_club_id = self._state.home_club_id
-            our_team_hint = self._state._our_team_hint
-            home_display_name = self._state._home_display_name
             self._state = MatchState()
             self._state.home_club_id = our_club_id
-            self._state._our_team_hint = our_team_hint
-            self._state._home_display_name = home_display_name
             self._generation += 1
             return {"generation": self._generation}
 
@@ -375,6 +364,35 @@ class MatchAccumulator:
             s.result_manual = False
             self._generation += 1
             return {"generation": self._generation}
+
+    def set_team_names(self, home: str = "", away: str = "") -> dict:
+        """Operator override: pin the displayed home/away names. A non-empty name
+        wins over whatever the app sends for that side; an empty string removes
+        the override for that side, reverting to the app's name (or the PENDING
+        placeholder until it arrives). Cleared wholesale by reset() (new game)."""
+        with self._lock:
+            s = self._state
+            s.home_team_name_override = (home or "").strip()
+            s.away_team_name_override = (away or "").strip()
+            # Recompute the display names from app data + overrides. Clear first
+            # so a *removed* override doesn't leave a stale name behind when the
+            # app hasn't supplied one.
+            s.home_team_name = ""
+            s.away_team_name = ""
+            _assign_home_away(s)
+            # The result line is computed once at match-end and frozen. If a
+            # result already exists, refresh it so a name typed after the match
+            # finished appears in the "X won by N" headline too.
+            if s.result:
+                res = compute_result(s, force=True)
+                if res is not None:
+                    s.result, s.result_description = res
+            self._generation += 1
+            return {
+                "generation": self._generation,
+                "home_team_name": s.home_team_name,
+                "away_team_name": s.away_team_name,
+            }
 
 
 # ---------- token handlers ----------------------------------------------------
@@ -525,16 +543,18 @@ def _h_bowler_info(s: MatchState, value: str) -> bool:
 
 
 def _assign_home_away(s: MatchState) -> bool:
-    """Map the two real team names (which the app sends per innings as BTN =
-    batting, FTN = fielding) onto the home/away slots.
+    """Map the app's per-innings batting/fielding names onto the home/away slots.
 
     BLE never encodes home vs away — only batting vs fielding, which swap each
-    innings. So we fix the mapping from innings 1: the side batting first and
-    the side fielding first are the two match teams. Rule:
-      1. If exactly one of them contains our hint -> that side is home.
-      2. Otherwise fall back to: team batting first = home.
-    Computed off innings 1 (with a current-innings fallback for a role not yet
-    seen) so the innings-2 role swap never re-swaps the labels. Returns True if
+    innings. So we fix the mapping positionally from innings 1: the side batting
+    first is home, the side fielding first is away. Computed off innings 1 (with
+    a current-innings fallback for a role not yet seen) so the innings-2 role
+    swap never re-swaps the labels. The displayed names always come straight
+    from the app — no hint matching and no club default substitution.
+
+    If a match is forming (one side known) but the other name has not arrived
+    yet, the missing slot shows PENDING_TEAM_NAME rather than a blank or a stale
+    value; the real name replaces it the moment it arrives. Returns True if
     home/away changed.
     """
     first = s.innings[0]
@@ -547,31 +567,21 @@ def _assign_home_away(s: MatchState) -> bool:
         other = s.innings[1].team_batting_name
     if not other:
         other = cur.team_fielding_name
-    if not bat_first and not other:
+
+    # Operator-typed overrides win over the app-derived names, per side. Resolved
+    # before the "nothing known" guard so a manual name can drive the display even
+    # before any innings/BTN/FTN has arrived (pre-match naming).
+    home = s.home_team_name_override or bat_first
+    away = s.away_team_name_override or other
+    if not home and not away:
         return False
 
-    hint = (s._our_team_hint or "").casefold()
-    home = away = ""
-    if hint and bat_first and other:
-        bat_match   = hint in bat_first.casefold()
-        other_match = hint in other.casefold()
-        if bat_match and not other_match:
-            home, away = bat_first, other
-        elif other_match and not bat_match:
-            home, away = other, bat_first
-    if not home and not away and hint:
-        # Single-name fallback: the app sometimes sends only one of BTN/FTN
-        # (after a reconnect it doesn't re-push the unchanged batting-team
-        # name). If the one name we did get is clearly the opponent — exactly
-        # one side known and it has no hint match — the missing side must be
-        # us, so publish our configured display name rather than a blank.
-        only_one_known = bool(bat_first) != bool(other)
-        known = bat_first or other
-        if only_one_known and hint not in known.casefold():
-            home, away = (s._home_display_name or "").strip(), known
-    if not home and not away:
-        # Positional fallback: team batting first is home.
-        home, away = bat_first, other
+    # One side known but the other's name not sent yet -> show a clear pending
+    # placeholder rather than a blank. Never fires while nothing is known
+    # (idle), and the two slots can never both be the placeholder.
+    if home or away:
+        home = home or PENDING_TEAM_NAME
+        away = away or PENDING_TEAM_NAME
 
     changed = False
     if home and s.home_team_name != home:

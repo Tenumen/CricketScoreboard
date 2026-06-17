@@ -144,6 +144,14 @@ def match_detail_to_dict(m: S.MatchState) -> dict:
             "wicket_id":      m.last_wicket_id,
         },
     })
+    # Operator manual names also drive the post-match innings summaries. Home
+    # bats first (positional anchoring), so innings 1 -> home override, innings
+    # 2 -> away. Only the displayed name is swapped; internal state is untouched.
+    _ov = {1: m.home_team_name_override, 2: m.away_team_name_override}
+    for inn_dict, inn in zip(base["innings"], m.innings):
+        name = _ov.get(inn.innings_number)
+        if name:
+            inn_dict["team_batting_name"] = name
     return base
 
 

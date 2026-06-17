@@ -94,30 +94,10 @@ def test_home_away_empty_at_construction():
     assert snap.away_team_name == ""
 
 
-def test_real_match_hint_maps_our_side_home_even_when_fielding():
-    """The exact 2026-05-31 scenario: our club fielded first. Both real names
-    come from the app; the 'Aston' hint puts our side in the home slot."""
-    acc = MatchAccumulator()                       # default hint = "Aston"
-    acc.apply("BTN", "Sutton Bonington CC Sunday XI")   # opposition batting
-    acc.apply("FTN", "Aston on Trent Village CC 1st XI") # we are fielding
-    snap = acc.snapshot()
-    assert snap.home_team_name == "Aston on Trent Village CC 1st XI"
-    assert snap.away_team_name == "Sutton Bonington CC Sunday XI"
-    assert snap.innings[0].team_batting_name  == "Sutton Bonington CC Sunday XI"
-    assert snap.innings[0].team_fielding_name == "Aston on Trent Village CC 1st XI"
-
-
-def test_hint_maps_our_side_home_when_batting():
-    acc = MatchAccumulator()
-    acc.apply("BTN", "Aston on Trent")             # we bat first
-    acc.apply("FTN", "Melbourne 1st XI")
-    snap = acc.snapshot()
-    assert snap.home_team_name == "Aston on Trent"
-    assert snap.away_team_name == "Melbourne 1st XI"
-
-
-def test_positional_fallback_when_no_hint_match():
-    """Neither name contains the hint -> team batting first is home."""
+def test_positional_home_is_team_batting_first():
+    """Home/away are mapped purely positionally: the side batting first is home,
+    the side fielding first is away. Names come straight from the app — no hint
+    matching, no club default."""
     acc = MatchAccumulator()
     acc.apply("BTN", "Repton CC")                  # batting first
     acc.apply("FTN", "Melbourne 1st XI")           # fielding first
@@ -126,55 +106,50 @@ def test_positional_fallback_when_no_hint_match():
     assert snap.away_team_name == "Melbourne 1st XI"
 
 
-def test_only_opponent_name_publishes_home_display_fallback():
-    """The app sent only the fielding (opponent) name — no BTN for our side
-    (e.g. it didn't re-push the batting-team name after a reconnect). Since the
-    one name we got isn't us, publish the configured home display name so the
-    splash isn't blank."""
+def test_positional_when_our_side_fields_first():
+    """Our club fielded first: the batting-first opponent is home and we are
+    away. Nothing promotes our side to home — both names are reported exactly
+    as the app sent them."""
     acc = MatchAccumulator()
-    acc.apply("FTN", "Away Test")                  # only the opponent's name
+    acc.apply("BTN", "Sutton Bonington CC Sunday XI")   # opposition batting
+    acc.apply("FTN", "Aston on Trent Village CC 1st XI") # we are fielding
     snap = acc.snapshot()
-    assert snap.home_team_name == "Aston on Trent"
+    assert snap.home_team_name == "Sutton Bonington CC Sunday XI"
+    assert snap.away_team_name == "Aston on Trent Village CC 1st XI"
+    assert snap.innings[0].team_batting_name  == "Sutton Bonington CC Sunday XI"
+    assert snap.innings[0].team_fielding_name == "Aston on Trent Village CC 1st XI"
+
+
+def test_only_fielding_name_shows_pending_home():
+    """Only the fielding name arrived (the batting-team name hasn't been sent
+    yet, e.g. it wasn't re-pushed after a reconnect). The home slot shows the
+    'Team ?' pending placeholder — NOT a fabricated club name."""
+    acc = MatchAccumulator()
+    acc.apply("FTN", "Away Test")                  # only the fielding name
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Team ?"
     assert snap.away_team_name == "Away Test"
 
 
-def test_only_opponent_name_via_btn_also_falls_back():
-    """Same fallback when the lone name arrives as BTN instead of FTN."""
+def test_only_batting_name_shows_pending_away():
+    """Mirror case: only the batting name arrived, so the away slot is pending."""
     acc = MatchAccumulator()
-    acc.apply("BTN", "Melbourne 1st XI")           # only name, not us
+    acc.apply("BTN", "Melbourne 1st XI")           # only the batting name
     snap = acc.snapshot()
-    assert snap.home_team_name == "Aston on Trent"
-    assert snap.away_team_name == "Melbourne 1st XI"
+    assert snap.home_team_name == "Melbourne 1st XI"
+    assert snap.away_team_name == "Team ?"
 
 
-def test_real_home_name_overrides_display_fallback():
-    """The fallback is provisional: once our real (app-sent) name arrives it
-    replaces the configured display name."""
+def test_real_name_replaces_pending_placeholder():
+    """The placeholder is provisional: once the missing app-sent name arrives it
+    replaces 'Team ?'."""
     acc = MatchAccumulator()
-    acc.apply("FTN", "Away Test")                  # fallback kicks in
-    assert acc.snapshot().home_team_name == "Aston on Trent"
-    acc.apply("BTN", "Aston on Trent Village CC")  # our real name turns up
+    acc.apply("FTN", "Away Test")                  # home still pending
+    assert acc.snapshot().home_team_name == "Team ?"
+    acc.apply("BTN", "Aston on Trent Village CC")  # batting-team name turns up
     snap = acc.snapshot()
     assert snap.home_team_name == "Aston on Trent Village CC"
     assert snap.away_team_name == "Away Test"
-
-
-def test_two_opponent_names_do_not_trigger_display_fallback():
-    """Both names present and neither is us (a neutral fixture) must NOT inject
-    our display name — the positional fallback still applies."""
-    acc = MatchAccumulator()
-    acc.apply("BTN", "Repton CC")
-    acc.apply("FTN", "Melbourne 1st XI")
-    snap = acc.snapshot()
-    assert snap.home_team_name == "Repton CC"      # not "Aston on Trent"
-    assert snap.away_team_name == "Melbourne 1st XI"
-
-
-def test_custom_home_display_name():
-    """--our-team-display-name overrides the published fallback name."""
-    acc = MatchAccumulator(home_display_name="Aston on Trent Sunday XI")
-    acc.apply("FTN", "Away Test")
-    assert acc.snapshot().home_team_name == "Aston on Trent Sunday XI"
 
 
 def test_home_away_stable_across_innings_flip():
@@ -184,11 +159,11 @@ def test_home_away_stable_across_innings_flip():
     acc.apply("BTN", "Sutton Bonington CC Sunday XI")
     acc.apply("FTN", "Aston on Trent Village CC 1st XI")
     acc.apply("BTS", "180/8")
-    acc.apply("BTN", "Aston on Trent Village CC 1st XI")  # 2nd innings, we bat
+    acc.apply("BTN", "Aston on Trent Village CC 1st XI")  # 2nd innings batting flips
     snap = acc.snapshot()
     assert len(snap.innings) == 2
-    assert snap.home_team_name == "Aston on Trent Village CC 1st XI"
-    assert snap.away_team_name == "Sutton Bonington CC Sunday XI"
+    assert snap.home_team_name == "Sutton Bonington CC Sunday XI"
+    assert snap.away_team_name == "Aston on Trent Village CC 1st XI"
     assert snap.innings[1].team_batting_name == "Aston on Trent Village CC 1st XI"
 
 
@@ -499,3 +474,59 @@ def test_match_detail_envelope_carries_last_event():
         "ball_is_wicket": False,
         "wicket_id":      1,
     }
+
+
+# ---------- operator manual team-name overrides -------------------------------
+
+def test_override_pins_name_over_later_app_name():
+    """A manual home name wins over whatever BTN/FTN the app sends afterwards."""
+    acc = MatchAccumulator()
+    acc.set_team_names(home="Aston 1st XI", away="")
+    acc.apply("BTN", "PC Home")                    # app names arrive after
+    acc.apply("FTN", "PC Away")
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston 1st XI"   # override wins
+    assert snap.away_team_name == "PC Away"        # no override -> app name
+
+
+def test_override_both_sides_wins_over_app():
+    acc = MatchAccumulator()
+    acc.apply("BTN", "PC Home")
+    acc.apply("FTN", "PC Away")
+    acc.set_team_names(home="Aston 1st XI", away="Repton CC")
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston 1st XI"
+    assert snap.away_team_name == "Repton CC"
+
+
+def test_blank_override_reverts_that_side_to_app_name():
+    acc = MatchAccumulator()
+    acc.apply("BTN", "PC Home")
+    acc.apply("FTN", "PC Away")
+    acc.set_team_names(home="Aston 1st XI", away="Repton CC")
+    assert acc.snapshot().home_team_name == "Aston 1st XI"
+    acc.set_team_names(home="", away="Repton CC")  # blank the home box
+    snap = acc.snapshot()
+    assert snap.home_team_name == "PC Home"         # reverted to app name
+    assert snap.away_team_name == "Repton CC"       # still pinned
+
+
+def test_override_drives_display_before_any_app_name():
+    """Pre-match: the operator can name a side before any BTN/FTN arrives; the
+    un-named side shows the pending placeholder."""
+    acc = MatchAccumulator()
+    acc.set_team_names(home="Aston 1st XI", away="")
+    snap = acc.snapshot()
+    assert snap.home_team_name == "Aston 1st XI"
+    assert snap.away_team_name == "Team ?"
+
+
+def test_reset_clears_overrides():
+    acc = MatchAccumulator()
+    acc.set_team_names(home="Aston 1st XI", away="Repton CC")
+    acc.reset()
+    snap = acc.snapshot()
+    assert snap.home_team_name_override == ""
+    assert snap.away_team_name_override == ""
+    assert snap.home_team_name == ""
+    assert snap.away_team_name == ""

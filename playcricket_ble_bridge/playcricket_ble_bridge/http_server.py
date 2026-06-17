@@ -67,6 +67,16 @@ def create_app(accumulator: MatchAccumulator, allow_inject: bool = False) -> Fla
     def admin_blank():
         return jsonify(accumulator.blank_scoreboard())
 
+    # Operator-typed team names from the admin console. A non-empty name pins
+    # that side over whatever the app sends; an empty string reverts that side
+    # to the app's name. Proxied from the console, same as the commands above.
+    @app.post("/api/admin/team-names")
+    def admin_team_names():
+        body = request.get_json(silent=True) or {}
+        return jsonify(accumulator.set_team_names(
+            home=body.get("home_team_name", ""),
+            away=body.get("away_team_name", "")))
+
     if allow_inject:
         # Dev-only: simulate a BLE token without a phone. Body =
         # {"code": "BTS", "value": "245/3"} or a list of such objects.

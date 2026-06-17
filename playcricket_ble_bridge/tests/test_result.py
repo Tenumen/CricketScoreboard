@@ -14,6 +14,7 @@ from playcricket_ble_bridge.state import (
     MatchAccumulator,
     compute_result,
 )
+from playcricket_ble_bridge.serializers import match_detail_to_dict
 
 
 def _two_innings(first_runs, chase_runs, chase_wkts, chase_overs,
@@ -127,3 +128,69 @@ def test_autoresult_is_sticky_until_reopen():
     # Mutate as if a stray correction arrived; sticky result stays.
     acc._maybe_autoresult()
     assert acc.snapshot().result_description == "Opponents won by 6 wickets"
+
+
+# ---------- operator manual names reach the result line + innings JSON --------
+
+def test_override_names_in_result_line_chase_win():
+    """Manual names win over the app's batting names in the result line. Home
+    bats first (innings 1), away chases and wins (innings 2)."""
+    s = _two_innings(first_runs=150, chase_runs=151, chase_wkts=4, chase_overs="18.2",
+                     team1="PC Home", team2="PC Away")
+    s.home_team_name_override = "Aston 1st XI"
+    s.away_team_name_override = "Repton CC"
+    assert compute_result(s) == ("W", "Repton CC won by 6 wickets")
+
+
+def test_override_names_in_result_line_defending_win():
+    s = _two_innings(first_runs=200, chase_runs=180, chase_wkts=10, chase_overs="17.3",
+                     team1="PC Home", team2="PC Away")
+    s.home_team_name_override = "Aston 1st XI"
+    s.away_team_name_override = "Repton CC"
+    assert compute_result(s) == ("W", "Aston 1st XI won by 20 runs")
+
+
+def test_partial_override_leaves_other_side_as_app_name():
+    # Only away overridden; a chase win must use the manual away name.
+    s = _two_innings(first_runs=150, chase_runs=151, chase_wkts=4, chase_overs="18.2",
+                     team1="PC Home", team2="PC Away")
+    s.away_team_name_override = "Repton CC"
+    assert compute_result(s) == ("W", "Repton CC won by 6 wickets")
+    # Only home overridden; a defending win must use the manual home name.
+    s2 = _two_innings(first_runs=200, chase_runs=180, chase_wkts=10, chase_overs="17.3",
+                      team1="PC Home", team2="PC Away")
+    s2.home_team_name_override = "Aston 1st XI"
+    assert compute_result(s2) == ("W", "Aston 1st XI won by 20 runs")
+
+
+def test_override_names_in_serialized_innings_summaries():
+    s = _two_innings(first_runs=200, chase_runs=180, chase_wkts=10, chase_overs="17.3",
+                     team1="PC Home", team2="PC Away")
+    s.home_team_name_override = "Aston 1st XI"
+    s.away_team_name_override = "Repton CC"
+    d = match_detail_to_dict(s)
+    assert d["innings"][0]["team_batting_name"] == "Aston 1st XI"   # innings 1 = home
+    assert d["innings"][1]["team_batting_name"] == "Repton CC"      # innings 2 = away
+
+
+def test_override_after_result_refreshes_description():
+    """A name typed AFTER the match result was inferred refreshes the frozen
+    result line (it is otherwise sticky)."""
+    acc = MatchAccumulator()
+    s = acc.snapshot()
+    s.innings = _two_innings(first_runs=200, chase_runs=180, chase_wkts=10,
+                             chase_overs="17.3", team1="PC Home",
+                             team2="PC Away").innings
+    acc._maybe_autoresult()
+    assert acc.snapshot().result_description == "PC Home won by 20 runs"
+    acc.set_team_names(home="Aston 1st XI", away="Repton CC")
+    assert acc.snapshot().result_description == "Aston 1st XI won by 20 runs"
+
+
+def test_serialized_innings_keep_app_name_without_override():
+    s = _two_innings(first_runs=200, chase_runs=180, chase_wkts=10, chase_overs="17.3",
+                     team1="PC Home", team2="PC Away")
+    s.away_team_name_override = "Repton CC"     # only away overridden
+    d = match_detail_to_dict(s)
+    assert d["innings"][0]["team_batting_name"] == "PC Home"        # unchanged
+    assert d["innings"][1]["team_batting_name"] == "Repton CC"
