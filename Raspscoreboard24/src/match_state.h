@@ -27,6 +27,24 @@ struct InningsSummary {
     bool valid = false;
 };
 
+// Operator "Innings finished" summary screen, frozen by the bridge at the
+// interval and shown over the live board until the next innings resumes. Top
+// two = highest scorers of the innings; has_extras is false in pairs cricket
+// (extras cannot be derived there) so the renderer omits the Extras line.
+struct InningsSummaryScreen {
+    bool active = false;
+    std::string team_name;
+    int runs = 0;
+    int wkts = 0;
+    bool has_extras = false;
+    int  extras = 0;
+    std::string overs;
+    std::string bat1_name;
+    int bat1_score = 0;
+    std::string bat2_name;
+    int bat2_score = 0;
+};
+
 struct MatchState {
     MatchPhase phase = MatchPhase::NO_MATCH;
 
@@ -67,6 +85,10 @@ struct MatchState {
     bool     last_ball_is_wicket = false;
     uint64_t last_wicket_id      = 0;
 
+    // Operator "Innings finished" frozen summary. When active, the renderer
+    // shows it instead of the live IN_MATCH board.
+    InningsSummaryScreen innings_summary;
+
     // Bumped on every successful update from the poll thread. The render
     // thread compares the snapshot it last drew against the live value to
     // decide whether to redraw.
@@ -78,6 +100,15 @@ struct MatchState {
 inline bool operator==(const InningsSummary& a, const InningsSummary& b) {
     return a.team_name == b.team_name && a.runs == b.runs && a.wkts == b.wkts &&
            a.overs == b.overs && a.valid == b.valid;
+}
+
+inline bool operator==(const InningsSummaryScreen& a, const InningsSummaryScreen& b) {
+    return a.active == b.active && a.team_name == b.team_name &&
+           a.runs == b.runs && a.wkts == b.wkts &&
+           a.has_extras == b.has_extras && a.extras == b.extras &&
+           a.overs == b.overs &&
+           a.bat1_name == b.bat1_name && a.bat1_score == b.bat1_score &&
+           a.bat2_name == b.bat2_name && a.bat2_score == b.bat2_score;
 }
 
 // True when every displayable field of `a` and `b` matches. Compares ALL fields
@@ -110,7 +141,8 @@ inline bool SameContent(const MatchState& a, const MatchState& b) {
            a.last_ball_id == b.last_ball_id &&
            a.last_ball_runs == b.last_ball_runs &&
            a.last_ball_is_wicket == b.last_ball_is_wicket &&
-           a.last_wicket_id == b.last_wicket_id;
+           a.last_wicket_id == b.last_wicket_id &&
+           a.innings_summary == b.innings_summary;
 }
 
 // Thread-safe holder. The poll thread calls update(), which copies in the new

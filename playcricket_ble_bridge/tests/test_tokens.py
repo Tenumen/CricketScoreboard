@@ -262,13 +262,14 @@ def test_realistic_scoring_sequence_produces_in_progress_match():
     assert runs == [34, 67]
 
 
-def test_cov_drives_runs_and_overs_when_bts_lags():
-    """Scenario from real Pixel 9a output 2026-05-19: app sends COV every
-    ball but BTS / OVB only on some balls. The wall must reflect the latest
-    over count and runs via COV."""
+def test_cov_drives_runs_ovb_owns_overs():
+    """Scenario from real Pixel 9a output 2026-05-19: app sends COV every ball
+    but BTS / OVB only on some balls. COV keeps the RUNS live between OVB
+    updates, but OVB is the authoritative over.ball -- COV must never advance
+    the over count itself (counting COV tokens as legal balls mis-counts when an
+    extra is bowled). So after ball 6 with no further OVB, the over reads the
+    last OVB value (0.5), not a COV-derived 1.0, while runs are still 5."""
     acc = MatchAccumulator()
-    # Ball 1 dot, balls 2-5 singles, ball 6 single. App sends BTS only after
-    # ball 5 ('4/0') and never after ball 6. The wall must still read 5/1.0.
     for code, val in [
         ("COV", ". "),                # ball 1: dot
         ("COV", ". 1 "),               # ball 2: 1 run
@@ -282,10 +283,14 @@ def test_cov_drives_runs_and_overs_when_bts_lags():
         acc.apply(code, val)
     inn = acc.snapshot().innings[-1]
     assert inn.runs  == 5,   f"expected 5 runs, got {inn.runs}"
-    assert inn.overs == "1.0", f"expected 1.0 overs, got {inn.overs!r}"
+    assert inn.overs == "0.5", f"expected OVB-owned 0.5 overs, got {inn.overs!r}"
 
 
-def test_cov_rolls_over_at_end_of_over():
+def test_cov_runs_bank_across_over_rollover():
+    """COV still banks the running total across the end-of-over rollover (so the
+    next over's runs accumulate on top of the previous over's), but it does not
+    touch the over count -- that is OVB's job, so without any OVB the over stays
+    0.0 here while runs carry over correctly."""
     acc = MatchAccumulator()
     # Complete one over of 6 singles, then a fresh over with one dot.
     for v in [". ", ". 1 ", ". 1 1 ", ". 1 1 1 ", ". 1 1 1 1 ", ". 1 1 1 1 1 "]:
@@ -294,7 +299,27 @@ def test_cov_rolls_over_at_end_of_over():
     acc.apply("COV", ". ")                 # ball 1 of over 2: dot
     inn = acc.snapshot().innings[-1]
     assert inn.runs  == 5
-    assert inn.overs == "1.1"
+    assert inn.overs == "0.0"              # no OVB sent -> COV doesn't advance it
+
+
+def test_extra_does_not_advance_over_count():
+    """Match-day bug: a wide/no-ball is an extra COV delivery but NOT a legal
+    ball, so the over must not advance for it. The app's OVB is extras-aware, so
+    the over count follows OVB even though the COV strip carries one more token
+    than legal balls bowled. Previously COV counted every token as a legal ball
+    and pushed the over a delivery further for each extra."""
+    acc = MatchAccumulator()
+    # Over so far: legal, legal, WIDE, legal, legal -> 5 COV tokens but only 4
+    # legal balls. The wide shows as an extra scoring token in the strip.
+    acc.apply("COV", "1 ")
+    acc.apply("COV", "1 1 ")
+    acc.apply("COV", "1 1 1 ")
+    acc.apply("COV", "1 1 1 1 ")
+    acc.apply("COV", "1 1 1 1 1 ")
+    acc.apply("OVB", "0.4")               # extras-aware: only 4 legal balls
+    inn = acc.snapshot().innings[-1]
+    assert inn.overs == "0.4"             # OVB-owned, not the COV-derived 0.5
+    assert inn.runs  == 5                 # COV still totals the runs (incl. wide)
 
 
 def test_bts_does_not_regress_runs_when_arriving_stale():
@@ -393,7 +418,8 @@ def test_cov_credits_runs_to_current_striker():
     assert inn.bat[1].runs == 8    # 2 + 6
     assert inn.bat[0].runs == 12   # unchanged across over
     assert inn.runs == 15
-    assert inn.overs == "1.0"
+    # No OVB was sent, so the over count is untouched by COV (OVB owns it).
+    assert inn.overs == "0.0"
 
 
 def test_b2s_snapshot_overrides_prior_cov_attribution():

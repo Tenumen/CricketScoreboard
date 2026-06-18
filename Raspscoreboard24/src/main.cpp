@@ -679,12 +679,67 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    // Operator "Innings finished" summary, shown over the live board through
+    // the interval (the bridge freezes it; it auto-clears when the next innings
+    // resumes play). Headline team name, big RUNS/WKTS, derived EXTRAS (omitted
+    // in pairs cricket where it can't be derived), and the innings' top two
+    // scorers. Anchors mirror the other splashes; tune against the wall.
+    auto draw_innings_summary = [&](const MatchState &s) {
+        grid.Fill(0, 0, 0);
+        const cricketboard::InningsSummaryScreen &is = s.innings_summary;
+
+        if (!is.team_name.empty()) {
+            std::string nm = truncate_to_width(font_label_big, is.team_name, 376);
+            draw_centered(font_label_big, kMidCx,
+                          baseline_for_centre(font_label_big, 22), c_amber, nm.c_str());
+        }
+        draw_centered(font_label, kMidCx,
+                      baseline_for_centre(font_label, 48), c_white, "INNINGS COMPLETE");
+
+        // Big RUNS/WKTS, e.g. "187/6".
+        snprintf(buf, sizeof(buf), "%d/%d", is.runs, is.wkts);
+        {
+            const Font &f = best_fit_font({&font_p90, &font_p70, &font_score, &font_small_num},
+                                          buf, 360, 64);
+            draw_centered(f, kMidCx, baseline_for_centre(f, 100), c_runs, buf);
+        }
+
+        // Derived extras — omitted entirely when not available (pairs cricket).
+        if (is.has_extras) {
+            snprintf(buf, sizeof(buf), "EXTRAS  %d", is.extras);
+            draw_centered(font_label_big, kMidCx,
+                          baseline_for_centre(font_label_big, 146), c_green, buf);
+        }
+
+        // Top two scorers: name (cyan) left, score (white) right-aligned.
+        auto draw_top_batter = [&](int centre_y, const std::string &name, int score) {
+            if (name.empty()) return;
+            snprintf(buf, sizeof(buf), "%d", score);
+            const int score_right = 336;
+            const int score_left  = score_right - text_width(font_label_big, buf);
+            draw_right(font_label_big, score_right,
+                       baseline_for_centre(font_label_big, centre_y), c_white, buf);
+            const int name_x   = 48;
+            const int name_max = (score_left - 12) - name_x;
+            if (name_max > 0) {
+                std::string nm = truncate_to_width(font_label_big, name, name_max);
+                draw_left(font_label_big, name_x,
+                          baseline_for_centre(font_label_big, centre_y), c_cyan, nm.c_str());
+            }
+        };
+        draw_top_batter(186, is.bat1_name, is.bat1_score);
+        draw_top_batter(228, is.bat2_name, is.bat2_score);
+    };
+
     // Flip to false to restore the classic detailed IN_MATCH layout
     // (logo, team names, TO WIN, LAST INNS). The classic draw_scoreboard()
     // is kept intact so reverting is a one-line change + rebuild.
     constexpr bool kUseBigLayout = true;
 
     auto draw_phase = [&](const MatchState &s) {
+        // Operator innings-summary freeze overrides the live board, whatever
+        // the phase (phase stays IN_MATCH through the interval).
+        if (s.innings_summary.active) { draw_innings_summary(s); return; }
         switch (s.phase) {
             case MatchPhase::PRE_MATCH:  draw_pre_match(s);  break;
             case MatchPhase::IN_MATCH:

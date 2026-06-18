@@ -70,6 +70,21 @@ class Innings:
     # can never represent the -5 penalty and would otherwise re-inflate it.
     pairs: bool = False
 
+    # Dismissed batters, in order of dismissal, for this innings. Each entry is
+    # a Bat with batsman_name + final runs (+ balls/how_out where sent). Built
+    # from the LWN/LWS/LWD tokens (the app sends the out-batter's name and score
+    # on each wicket). Combined with the two not-out bat[] slots this gives the
+    # full batting card the innings-summary screen needs (top-two scorers and
+    # the extras derivation total − sum(all batters)). See _h_lwn.
+    dismissed: List["Bat"] = field(default_factory=list)
+    # Most-recent non-blank LWN value, so a re-sent dismissal (the app replays
+    # the cluster) maps to the same dismissed entry rather than a duplicate.
+    _last_lwn_name: str = ""
+    # Set by _h_lwk: the just-reported fall score is BELOW the current total, so
+    # this is a stale connection-snapshot replay of a pre-connect wicket, not a
+    # live dismissal — _h_lwn skips adding it to the card.
+    _stale_wicket: bool = False
+
     # COV-derived running tallies. The Play-Cricket Scorer app sometimes
     # skips BTS / OVB updates between balls (it only refreshes them on
     # certain events), but COV — the ball-by-ball over summary — is sent
@@ -83,6 +98,26 @@ class Innings:
     # moment the ball arrives. `_cov_balls_attributed` keeps us idempotent.
     _striker_idx:           int = 0   # 0 = bat[0] facing, 1 = bat[1] facing
     _cov_balls_attributed:  int = 0
+
+
+@dataclass
+class InningsSummary:
+    """Frozen snapshot of a completed innings, shown on the wall during the
+    interval. Populated by MatchAccumulator.finish_innings() when the operator
+    presses 'Innings finished' (the BLE feed sends no innings-over signal).
+    `has_extras` is False in pairs cricket, where extras cannot be derived."""
+    active: bool = False
+    innings_number: int = 0
+    team_batting_name: str = ""
+    runs: int = 0
+    wickets: int = 0
+    overs: str = "0.0"
+    has_extras: bool = False
+    extras: int = 0
+    bat1_name: str = ""
+    bat1_runs: int = 0
+    bat2_name: str = ""
+    bat2_runs: int = 0
 
 
 @dataclass
@@ -128,6 +163,13 @@ class MatchState:
     last_ball_runs:      int  = 0
     last_ball_is_wicket: bool = False
     last_wicket_id:      int  = 0
+
+    # Frozen innings-summary screen (operator 'Innings finished'). Sticky until
+    # the next innings resumes play or an explicit clear (reset/blank/reopen).
+    innings_summary: InningsSummary = field(default_factory=InningsSummary)
+    # last_ball_id at the moment the summary was frozen; the summary auto-clears
+    # once last_ball_id moves past this (a genuine ball = play has resumed).
+    _summary_freeze_ball_id: int = 0
 
 
 def _parse_overs(value: str) -> str:
@@ -207,6 +249,37 @@ def _plural(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
+def _batting_card(inn: Innings) -> List[Bat]:
+    """Every batter who has batted this innings: the dismissed batters (with
+    their final runs) plus the not-out batters still at the crease, deduped by
+    name (the dismissed record wins — it covers the window between a dismissal
+    and the next B*N where the out batter still occupies a bat[] slot)."""
+    out_names = {b.batsman_name for b in inn.dismissed if b.batsman_name}
+    card: List[Bat] = [b for b in inn.dismissed if b.batsman_name]
+    for b in inn.bat:
+        if b.batsman_name and b.batsman_name not in out_names:
+            card.append(b)
+    return card
+
+
+def _top_two(inn: Innings) -> List[Bat]:
+    """The two highest scorers of the innings, runs descending."""
+    return sorted(_batting_card(inn), key=lambda b: b.runs, reverse=True)[:2]
+
+
+def _derived_extras(inn: Innings) -> Optional[int]:
+    """Extras = team total − sum(all batters' runs). The BLE feed never sends
+    extras, so we derive them; this is exact at innings end only in full cricket
+    with a complete batting card. Returns None (i.e. "don't show extras") in
+    pairs cricket — where a wicket is a −5 penalty and batter scores go negative,
+    making the identity meaningless — and when the batters' sum exceeds the team
+    total (attribution drift), where any figure would be wrong."""
+    if inn.pairs:
+        return None
+    extras = inn.runs - sum(b.runs for b in _batting_card(inn))
+    return extras if extras >= 0 else None
+
+
 def compute_result(s: MatchState, force: bool = False):
     """Infer the match result from the 2nd-innings score.
 
@@ -222,10 +295,17 @@ def compute_result(s: MatchState, force: bool = False):
     inn1, inn2 = s.innings[0], s.innings[1]
     target = inn2.revised_target_runs or (inn1.runs + 1)
     wkts_all_out = max(s.players_per_side - 1, 1)
-    # Operator manual names win here too. Home bats first (positional anchoring),
-    # so innings 1's batting side is home and innings 2's is away.
-    team_first = s.home_team_name_override or inn1.team_batting_name or "Team 1"
-    team_chase = s.away_team_name_override or inn2.team_batting_name or "Team 2"
+    # Prefer the positionally resolved names (home bats first, so innings 1's
+    # batting side is home and innings 2's is away). home_team_name/away_team_name
+    # are computed by _assign_home_away, already fold in any operator override,
+    # and match what the Console shows -- so the result headline stays consistent
+    # with the rest of the wall and never duplicates a name when the raw
+    # per-innings team_batting_name is stale/copied. Fall back to the override
+    # then the per-innings name for states built without _assign_home_away.
+    team_first = (s.home_team_name or s.home_team_name_override
+                  or inn1.team_batting_name or "Team 1")
+    team_chase = (s.away_team_name or s.away_team_name_override
+                  or inn2.team_batting_name or "Team 2")
 
     def chase_win() -> tuple[str, str]:
         in_hand = max(wkts_all_out - inn2.wickets, 0)
@@ -289,6 +369,7 @@ class MatchAccumulator:
             if changed:
                 self._generation += 1
                 self._maybe_autoresult()
+                self._maybe_clear_summary()
             return changed
 
     def _maybe_autoresult(self) -> None:
@@ -301,6 +382,64 @@ class MatchAccumulator:
         res = compute_result(s)
         if res is not None:
             s.result, s.result_description = res
+
+    def _maybe_clear_summary(self) -> None:
+        """Clear a frozen innings summary once play has resumed — i.e. a genuine
+        ball has been bowled since the freeze (last_ball_id advanced). This is
+        the only reliable 'next innings started' signal: innings-level runs/overs
+        can jump from the BTT-before-BTN target synthesis or a snapshot replay,
+        but last_ball_id only moves on a real COV-delivered ball. Holds the lock."""
+        s = self._state
+        if s.innings_summary.active and s.last_ball_id > s._summary_freeze_ball_id:
+            s.innings_summary = InningsSummary()
+
+    def finish_innings(self) -> dict:
+        """Operator override: freeze a summary of the innings that just ended and
+        show it on the wall through the interval. The BLE feed has no innings-over
+        token, so this is a manual button. Captures runs/wickets/overs, the top
+        two scorers, and derived extras (full cricket only — None in pairs), then
+        bumps the generation so the next poll picks it up. Sticky until the next
+        innings resumes play (_maybe_clear_summary) or an explicit clear."""
+        with self._lock:
+            s = self._state
+            inn = _current_innings(s)
+            top = _top_two(inn)
+            extras = _derived_extras(inn)
+            # Team name honouring the operator override (home bats first, so
+            # innings 1 -> home override, innings 2 -> away), mirroring the
+            # result-line and post-match logic.
+            override = (s.home_team_name_override if inn.innings_number == 1
+                        else s.away_team_name_override)
+            team = override or inn.team_batting_name
+            # Build a fresh InningsSummary from copied scalar values — never alias
+            # the live bat/dismissed lists, so later apply() calls can't mutate
+            # the frozen snapshot.
+            summ = InningsSummary(
+                active=True,
+                innings_number=inn.innings_number,
+                team_batting_name=team,
+                runs=inn.runs,
+                wickets=inn.wickets,
+                overs=inn.overs,
+                has_extras=extras is not None,
+                extras=extras if extras is not None else 0,
+                bat1_name=top[0].batsman_name if len(top) >= 1 else "",
+                bat1_runs=top[0].runs        if len(top) >= 1 else 0,
+                bat2_name=top[1].batsman_name if len(top) >= 2 else "",
+                bat2_runs=top[1].runs        if len(top) >= 2 else 0,
+            )
+            s.innings_summary = summ
+            s._summary_freeze_ball_id = s.last_ball_id
+            self._generation += 1
+            return {
+                "generation":     self._generation,
+                "innings_number": summ.innings_number,
+                "runs":           summ.runs,
+                "wickets":        summ.wickets,
+                "extras":         summ.extras if summ.has_extras else None,
+                "bat1":           [summ.bat1_name, summ.bat1_runs],
+                "bat2":           [summ.bat2_name, summ.bat2_runs],
+            }
 
     def force_finish(self) -> dict:
         """Operator override: mark the match complete now, computing a result
@@ -329,6 +468,7 @@ class MatchAccumulator:
             s.result = ""
             s.result_description = ""
             s.result_manual = False
+            s.innings_summary = InningsSummary()  # back to the live board
             self._generation += 1
             return {"generation": self._generation}
 
@@ -362,6 +502,7 @@ class MatchAccumulator:
             s.result = ""
             s.result_description = ""
             s.result_manual = False
+            s.innings_summary = InningsSummary()  # manual dismiss of the summary
             self._generation += 1
             return {"generation": self._generation}
 
@@ -505,14 +646,16 @@ def _h_cov(s: MatchState, value: str) -> bool:
                 striker_changed = True
         inn._cov_balls_attributed = balls
 
-    total_legal_balls = inn._legal_balls_at_over_start + balls
-    derived_overs     = f"{total_legal_balls // 6}.{total_legal_balls % 6}"
-    derived_runs      = inn._runs_at_over_start + runs
+    derived_runs = inn._runs_at_over_start + runs
 
+    # NB: the over.ball count is NOT derived here. COV lists one token per
+    # delivery, including wides/no-balls, so counting its length as legal balls
+    # over-counts the over by one per extra (a wide must add a ball, not end the
+    # over early). The app already sends the correct, extras-aware over.ball in
+    # OVB, so _h_ovb owns inn.overs; COV only drives runs and striker
+    # attribution. (The _legal_balls_at_over_start banking above is retained
+    # because the runs baseline _runs_at_over_start rides the same rollover.)
     changed = False
-    if total_legal_balls > _legal_balls_from_overs(inn.overs):
-        inn.overs = derived_overs
-        changed = True
     # In pairs the COV strip can't see the -5 wicket penalty (a 'W' ball is 0
     # runs), so it must not drive the team total — BTS owns it there. In full
     # cricket COV keeps the total live on balls where BTS lags a delivery.
@@ -632,12 +775,15 @@ def _h_btt(s: MatchState, value: str) -> bool:
     if target <= 0:
         return False
     # Existence of a target implies a 2nd innings is in progress. The phone
-    # may have sent BTT before BTN, in which case we open innings 2 now using
-    # whatever batting-team name we have (will be corrected on the next BTN).
+    # may have sent BTT before BTN, in which case we open innings 2 now. Leave
+    # the batting-team name EMPTY rather than copying innings 1's: copying it
+    # left both innings carrying the same name (and the post-match splash
+    # showing one team twice) whenever a distinguishing BTN never arrived. The
+    # name is filled by the next BTN, and the displayed name is anchored to the
+    # positional home/away resolution by the serializer regardless.
     cur = _current_innings(s)
     if cur.innings_number == 1:
-        s.innings.append(Innings(innings_number=2,
-                                 team_batting_name=cur.team_batting_name or ""))
+        s.innings.append(Innings(innings_number=2, team_batting_name=""))
         cur = _current_innings(s)
         # Also flag the first innings as having activity even if no BTS was
         # seen (defensive).
@@ -708,6 +854,11 @@ def _h_lwk(s: MatchState, value: str) -> bool:
     except ValueError:
         return False
     inn = _current_innings(s)
+    # A fall-of-wicket score below the current total is a stale connection-
+    # snapshot replay of a pre-connect wicket, not a live dismissal — flag it so
+    # _h_lwn doesn't add a phantom batter to the card. (LWK leads the cluster, so
+    # the flag is fresh when LWN arrives.)
+    inn._stale_wicket = team_score < inn.runs
     # Last wicket: append/update a Fow entry for the most recent dismissal.
     if not inn.fow or inn.fow[-1].runs != team_score:
         inn.fow.append(Fow(runs=team_score, wickets=inn.wickets or len(inn.fow) + 1))
@@ -716,21 +867,69 @@ def _h_lwk(s: MatchState, value: str) -> bool:
     return False
 
 
+def _h_lwn(s: MatchState, value: str) -> bool:
+    """LWN — dismissed batter's name. A non-blank value that differs from the
+    previous one starts a new dismissed-batter entry (LWS/LWD then decorate it).
+    The app re-sends the cluster (same name) and later blanks it; both are no-ops
+    here. A stale connection-snapshot wicket (see _h_lwk) updates the name guard
+    but is not added to the card."""
+    name = value.strip()
+    if not name or name == _current_innings(s)._last_lwn_name:
+        return False
+    inn = _current_innings(s)
+    inn._last_lwn_name = name
+    if inn._stale_wicket:
+        return False
+    inn.dismissed.append(Bat(position=len(inn.dismissed) + 1, batsman_name=name))
+    return True
+
+
 def _h_lws(s: MatchState, value: str) -> bool:
-    # Out-batter's score — informational; not surfaced on the wall today.
-    return False
+    """LWS — dismissed batter's score, 'runs (balls)' e.g. '60 (39)'. Attaches
+    the final runs/balls to the current dismissed entry."""
+    v = value.strip()
+    inn = _current_innings(s)
+    if not v or not inn.dismissed:
+        return False
+    runs_str = v.split("(", 1)[0].strip()
+    try:
+        runs = int(runs_str)
+    except ValueError:
+        return False
+    balls = 0
+    if "(" in v and ")" in v:
+        try:
+            balls = int(v[v.index("(") + 1:v.index(")")].strip())
+        except ValueError:
+            balls = 0
+    last = inn.dismissed[-1]
+    if last.runs == runs and last.balls == balls:
+        return False
+    last.runs = runs
+    last.balls = balls
+    return True
 
 
 def _h_lwd(s: MatchState, value: str) -> bool:
     code = value.strip()
     name = T.DISMISSAL_NAMES.get(code, code)
     inn = _current_innings(s)
-    if not inn.fow:
-        return False
-    if inn.fow[-1].how_out == name:
-        return False
-    inn.fow[-1].how_out = name
-    return True
+    changed = False
+    if inn.fow and inn.fow[-1].how_out != name:
+        inn.fow[-1].how_out = name
+        changed = True
+    # Decorate the current dismissed entry too, but never wipe it on the blank
+    # re-send (name == "").
+    if name and inn.dismissed and inn.dismissed[-1].how_out != name:
+        inn.dismissed[-1].how_out = name
+        changed = True
+    return changed
+
+
+def _h_noop(s: MatchState, value: str) -> bool:
+    # LWB (incoming batter) / LWF (fielder): accepted so they stop logging as
+    # UNKNOWN, but not surfaced on the wall.
+    return False
 
 
 _HANDLERS = {
@@ -754,6 +953,9 @@ _HANDLERS = {
     "F1N": _h_bowler_info,
     "F1S": _h_bowler_info,
     "LWK": _h_lwk,
+    "LWN": _h_lwn,
     "LWS": _h_lws,
     "LWD": _h_lwd,
+    "LWB": _h_noop,
+    "LWF": _h_noop,
 }

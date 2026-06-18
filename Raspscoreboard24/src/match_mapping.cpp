@@ -151,6 +151,33 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
         }
     }
 
+    // Operator "Innings finished" frozen summary. Absent on un-upgraded
+    // bridges -> inactive. `extras` is "" when not derivable (pairs cricket);
+    // an empty string parses to has_extras=false so the Extras line is omitted.
+    {
+        const json& sm = Field(m, "innings_summary");
+        if (sm.is_object() && ToBool(Field(sm, "active"))) {
+            InningsSummaryScreen& iss = st.innings_summary;
+            iss.active     = true;
+            iss.team_name  = ToStr(Field(sm, "team_batting_name"));
+            iss.runs       = ToInt(Field(sm, "runs"));
+            iss.wkts       = ToInt(Field(sm, "wickets"));
+            iss.overs      = ToStr(Field(sm, "overs"));
+            const std::string extras_str = ToStr(Field(sm, "extras"));
+            iss.has_extras = !extras_str.empty();
+            iss.extras     = ToInt(Field(sm, "extras"));
+            const json& bat = Field(sm, "bat");
+            if (bat.is_array() && bat.size() >= 1) {
+                iss.bat1_name  = ToStr(Field(bat[0], "batsman_name"));
+                iss.bat1_score = ToInt(Field(bat[0], "runs"));
+            }
+            if (bat.is_array() && bat.size() >= 2) {
+                iss.bat2_name  = ToStr(Field(bat[1], "batsman_name"));
+                iss.bat2_score = ToInt(Field(bat[1], "runs"));
+            }
+        }
+    }
+
     // Phase classification.
     const std::string result_field      = ToStr(Field(m, "result"));
     const std::string result_desc       = ToStr(Field(m, "result_description"));

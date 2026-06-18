@@ -50,6 +50,25 @@ def _fow_to_dict(f: S.Fow) -> dict:
     }
 
 
+def _innings_summary_to_dict(sm: "S.InningsSummary") -> dict:
+    """Frozen innings-summary screen (operator 'Innings finished'). `extras` is
+    "" when not derivable (pairs cricket / attribution drift) so the wall omits
+    the Extras line rather than showing a misleading 0."""
+    return {
+        "active":             sm.active,
+        "innings_number":     sm.innings_number,
+        "team_batting_name":  sm.team_batting_name,
+        "runs":               _s(sm.runs),
+        "wickets":            _s(sm.wickets),
+        "overs":              sm.overs,
+        "extras":             _s(sm.extras) if sm.has_extras else "",
+        "bat": [
+            {"batsman_name": sm.bat1_name, "runs": _s(sm.bat1_runs)},
+            {"batsman_name": sm.bat2_name, "runs": _s(sm.bat2_runs)},
+        ],
+    }
+
+
 def _innings_to_dict(inn: S.Innings) -> dict:
     return {
         "team_batting_name":  inn.team_batting_name,
@@ -137,6 +156,7 @@ def match_detail_to_dict(m: S.MatchState) -> dict:
             {"away_team": []},
         ],
         "innings": [_innings_to_dict(i) for i in m.innings],
+        "innings_summary": _innings_summary_to_dict(m.innings_summary),
         "last_event": {
             "ball_id":        m.last_ball_id,
             "ball_runs":      m.last_ball_runs,
@@ -144,12 +164,19 @@ def match_detail_to_dict(m: S.MatchState) -> dict:
             "wicket_id":      m.last_wicket_id,
         },
     })
-    # Operator manual names also drive the post-match innings summaries. Home
-    # bats first (positional anchoring), so innings 1 -> home override, innings
-    # 2 -> away. Only the displayed name is swapped; internal state is untouched.
-    _ov = {1: m.home_team_name_override, 2: m.away_team_name_override}
+    # Anchor each innings' displayed batting-team name to the positionally
+    # resolved home/away names (home bats first, so innings 1 -> home, innings
+    # 2 -> away). Those fields are computed by _assign_home_away and already
+    # fold in any operator override, so this is the single source of truth the
+    # Console also uses. It deliberately overrides the raw per-innings
+    # team_batting_name, which can be stale/duplicated when innings 2 is opened
+    # from a target (BTT) before a distinguishing BTN arrives -- the cause of
+    # the post-match splash showing both teams the same name. Only the displayed
+    # name is set; internal state is untouched.
+    _resolved = {1: m.home_team_name or m.home_team_name_override,
+                 2: m.away_team_name or m.away_team_name_override}
     for inn_dict, inn in zip(base["innings"], m.innings):
-        name = _ov.get(inn.innings_number)
+        name = _resolved.get(inn.innings_number)
         if name:
             inn_dict["team_batting_name"] = name
     return base

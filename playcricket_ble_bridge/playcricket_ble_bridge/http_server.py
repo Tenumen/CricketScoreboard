@@ -56,6 +56,13 @@ def create_app(accumulator: MatchAccumulator, allow_inject: bool = False) -> Fla
     def admin_reopen():
         return jsonify(accumulator.reopen())
 
+    # Freeze an innings-summary screen at the interval (Total/Extras/Wickets +
+    # top two batters). The BLE feed sends no innings-over signal, so this is a
+    # manual button; auto-clears when the next innings resumes play.
+    @app.post("/api/admin/innings-finished")
+    def admin_innings_finished():
+        return jsonify(accumulator.finish_innings())
+
     # Clear the match back to a clean slate (idle logo, ready for a new game);
     # and force the live 0/0 board on before any score arrives. Both proxied
     # from the admin console, same as finish/reopen.

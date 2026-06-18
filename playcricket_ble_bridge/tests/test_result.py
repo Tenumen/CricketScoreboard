@@ -187,6 +187,32 @@ def test_override_after_result_refreshes_description():
     assert acc.snapshot().result_description == "Aston 1st XI won by 20 runs"
 
 
+def test_splash_names_distinct_when_innings2_opened_by_target():
+    """Match-day bug: opponent unnamed (the app sends the literal 'Away') bats
+    first, our side chases, and innings 2 is opened by a target (BTT) with no
+    distinguishing BTN for our side. The post-match splash and result line must
+    still show two distinct names -- anchored to the positional home/away
+    resolution the Console uses -- not the away name twice."""
+    acc = MatchAccumulator()
+    # Innings 1: opponent (unnamed -> 'Away') bats and is bowled out for 120.
+    acc.apply("BTN", "Away")
+    acc.apply("FTN", "Aston on Trent")
+    acc.apply("BTS", "120/10")
+    # Innings break: the app sends the chase target but no fresh BTN.
+    acc.apply("BTT", "121")
+    # Our side knocks off the runs for the loss of 4 wickets.
+    acc.apply("BTS", "121/4")
+    s = acc.snapshot()
+
+    d = match_detail_to_dict(s)
+    first = d["innings"][0]["team_batting_name"]
+    second = d["innings"][1]["team_batting_name"]
+    assert first == "Away"                       # innings 1 = side batting first
+    assert second == "Aston on Trent"            # innings 2 = our side (resolved)
+    assert first != second                       # the bug was both == "Away"
+    assert compute_result(s) == ("W", "Aston on Trent won by 6 wickets")
+
+
 def test_serialized_innings_keep_app_name_without_override():
     s = _two_innings(first_runs=200, chase_runs=180, chase_wkts=10, chase_overs="17.3",
                      team1="PC Home", team2="PC Away")

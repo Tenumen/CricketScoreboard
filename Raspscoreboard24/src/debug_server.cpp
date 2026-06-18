@@ -193,6 +193,19 @@ json StateToJson(const MatchState& s) {
         {"result_description", s.result_description},
         {"inn1",               InningsToJson(s.inn1)},
         {"inn2",               InningsToJson(s.inn2)},
+        {"innings_summary", {
+            {"active",      s.innings_summary.active},
+            {"team_name",   s.innings_summary.team_name},
+            {"runs",        s.innings_summary.runs},
+            {"wkts",        s.innings_summary.wkts},
+            {"has_extras",  s.innings_summary.has_extras},
+            {"extras",      s.innings_summary.extras},
+            {"overs",       s.innings_summary.overs},
+            {"bat1_name",   s.innings_summary.bat1_name},
+            {"bat1_score",  s.innings_summary.bat1_score},
+            {"bat2_name",   s.innings_summary.bat2_name},
+            {"bat2_score",  s.innings_summary.bat2_score},
+        }},
     };
 }
 
@@ -310,6 +323,11 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
     <button id="btn-reopen">Re-open match</button>
   </div>
 
+  <div class="section">Interval</div>
+  <div class="actions">
+    <button id="btn-innings-finished">Innings finished</button>
+  </div>
+
   <div class="section">Display control</div>
   <div class="actions">
     <button id="btn-blank">Blank scoreboard</button>
@@ -330,6 +348,11 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
   <table>
     <tr><th>Generation</th><td id="generation">—</td></tr>
   </table>
+
+  <div class="section">Diagnostics</div>
+  <div class="actions">
+    <button id="btn-email-logs">Email match logs</button>
+  </div>
 
   <div class="section">Build</div>
   <table>
@@ -506,6 +529,24 @@ document.getElementById('btn-finish').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('btn-innings-finished').addEventListener('click', async () => {
+  if (!confirm('Show the innings summary on the wall?\n\n'
+             + 'Press this once the first innings has finished, before the next '
+             + 'innings starts. The wall shows the total, extras, wickets and the '
+             + 'two top scorers. It clears automatically when the next innings '
+             + 'starts scoring, or press "Blank scoreboard" to clear it now.')) return;
+  try {
+    const r = await fetch('/api/innings-finished', { method: 'POST' });
+    if (r.ok) {
+      showBanner('Innings summary shown on the wall.');
+    } else {
+      showBanner(`Innings-finished request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Innings-finished request failed: ' + err.message, true);
+  }
+});
+
 document.getElementById('btn-reopen').addEventListener('click', async () => {
   if (!confirm('Re-open the match and return to the live scoreboard?')) return;
   try {
@@ -614,6 +655,21 @@ document.getElementById('btn-forget-bt').addEventListener('click', async () => {
     }
   } catch (err) {
     showBanner('Forget-devices request failed: ' + err.message, true);
+  }
+});
+
+document.getElementById('btn-email-logs').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/api/email-logs', { method: 'POST' });
+    if (r.status === 202) {
+      showBanner('Log email requested. The discovery log should arrive by email '
+               + 'within a minute or two. If nothing arrives, the mailer '
+               + 'credentials may not be set up on the Pi.');
+    } else {
+      showBanner(`Email-logs request failed (HTTP ${r.status}).`, true);
+    }
+  } catch (err) {
+    showBanner('Email-logs request failed: ' + err.message, true);
   }
 });
 
@@ -776,6 +832,23 @@ DebugServer::DebugServer(const SharedMatchState* state,
         res.set_content("{\"started\":true}", "application/json");
     });
 
+    // Email the BLE bridge's logs (discovery.log + today/latest match logs)
+    // off the Pi. Detached like the other admin scripts; the actual SMTP send
+    // happens asynchronously, so the inbox is the real confirmation. Reuses the
+    // shutdown mailer's encrypted credential (CREDENTIALS_DIRECTORY is set for
+    // the whole unit and inherited by the spawned child).
+    server_->Post("/api/email-logs", [this](const httplib::Request&, httplib::Response& res) {
+        const std::string script = scripts_dir_ + "/mail_logs.sh";
+        std::fprintf(stderr, "POST /api/email-logs → spawning %s\n", script.c_str());
+        if (!SpawnDetachedScript(script)) {
+            res.status = 500;
+            res.set_content("{\"error\":\"fork failed\"}", "application/json");
+            return;
+        }
+        res.status = 202;
+        res.set_content("{\"started\":true}", "application/json");
+    });
+
     // Match-finish / reopen: proxy to the BLE bridge, which owns the result
     // state. We can't write it into our own SharedMatchState — the next poll
     // would clobber it — so the source of truth must be the bridge.
@@ -807,6 +880,11 @@ DebugServer::DebugServer(const SharedMatchState* state,
     server_->Post("/api/reopen", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
         std::fprintf(stderr, "POST /api/reopen -> bridge /api/admin/reopen\n");
         proxy_to_bridge("/api/admin/reopen", res);
+    });
+
+    server_->Post("/api/innings-finished", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
+        std::fprintf(stderr, "POST /api/innings-finished -> bridge /api/admin/innings-finished\n");
+        proxy_to_bridge("/api/admin/innings-finished", res);
     });
 
     server_->Post("/api/blank", [this, proxy_to_bridge](const httplib::Request&, httplib::Response& res) {
