@@ -367,9 +367,11 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
     <tr><th>Build commit</th>   <td id="build_commit">—</td></tr>
     <tr><th>HEAD commit</th>    <td id="head_commit">—</td></tr>
     <tr><th>HEAD subject</th>   <td id="head_subject">—</td></tr>
+    <tr><th>Latest on GitHub</th><td id="remote_commit">— (press Check)</td></tr>
     <tr><th>Rollback target</th><td id="prev_commit">—</td></tr>
   </table>
   <div class="actions">
+    <button id="btn-check-update">Check for updates</button>
     <button id="btn-update">Update from git</button>
     <button id="btn-rollback" disabled>Roll back</button>
     <button id="btn-reboot" class="danger">Reboot Pi</button>
@@ -453,6 +455,42 @@ async function refresh() {
     updated.classList.add('stale');
   }
 }
+
+document.getElementById('btn-check-update').addEventListener('click', async () => {
+  const btn  = document.getElementById('btn-check-update');
+  const cell = document.getElementById('remote_commit');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try {
+    const r = await fetch('/api/check-update', { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) {
+      showBanner('Update check failed: ' + (d && d.error ? d.error : `HTTP ${r.status}`), true);
+      cell.textContent = 'check failed';
+    } else if (d.up_to_date) {
+      showBanner('Up to date — origin/main = ' + d.remote_commit + '.');
+      cell.textContent = d.remote_commit + ' ';
+      const span = document.createElement('span');
+      span.className = 'build-match'; span.textContent = '✓ up to date';
+      cell.append(span);
+    } else {
+      const plural = d.behind === 1 ? '' : 's';
+      showBanner('Update available: ' + d.remote_commit + ' — ' + d.remote_subject
+               + ' (' + d.behind + ' commit' + plural + ' behind). '
+               + 'Press "Update from git" to install.');
+      // Build with DOM nodes (not innerHTML) so a commit subject can't inject markup.
+      cell.textContent = d.remote_commit + ' — ' + d.remote_subject + ' ';
+      const span = document.createElement('span');
+      span.className = 'build-mismatch'; span.textContent = '▲ ' + d.behind + ' behind';
+      cell.append(span);
+    }
+  } catch (err) {
+    showBanner('Update check failed: ' + err.message, true);
+    cell.textContent = 'check failed';
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+});
 
 document.getElementById('btn-update').addEventListener('click', async () => {
   const v = lastVersion;
@@ -759,6 +797,47 @@ DebugServer::DebugServer(const SharedMatchState* state,
             {"head_subject", head_subject},
             {"prev_commit",  prev_commit},
             {"has_rollback", has_rollback},
+        };
+        res.set_content(out.dump(), "application/json");
+    });
+
+    // Read-only "is there a newer build on GitHub?" check. Fetches the remote
+    // and compares the Pi's HEAD to origin/main, WITHOUT pulling. The operator
+    // then presses "Update from git" to actually install.
+    server_->Post("/api/check-update", [this](const httplib::Request&, httplib::Response& res) {
+        // `git fetch` spawns git-remote-https and waitpid()s on it internally.
+        // Under the server's SIGCHLD=SIG_IGN that returns ECHILD and the fetch
+        // fails — the same root cause as the historical update.sh bug. Reset
+        // SIGCHLD to default for the duration of these git calls, then restore
+        // SIG_IGN (which on Linux also reaps any child that exited meanwhile, so
+        // no zombies leak).
+        struct SigchldGuard {
+            SigchldGuard()  { ::signal(SIGCHLD, SIG_DFL); }
+            ~SigchldGuard() { ::signal(SIGCHLD, SIG_IGN); }
+        } sigchld_guard;
+
+        // Bounded transfer time so an unreachable GitHub can't hang the thread
+        // mid-transfer. Output is discarded (RunGitCapture appends 2>/dev/null).
+        RunGitCapture(repo_dir_,
+            "-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 fetch --quiet origin");
+
+        const std::string remote_commit = RunGitCapture(repo_dir_, "rev-parse --short origin/main");
+        if (remote_commit.empty()) {
+            res.status = 502;
+            res.set_content("{\"ok\":false,\"error\":\"could not reach GitHub\"}",
+                            "application/json");
+            return;
+        }
+        const std::string behind_str     = RunGitCapture(repo_dir_, "rev-list --count HEAD..origin/main");
+        const std::string remote_subject = RunGitCapture(repo_dir_, "log -1 --pretty=%s origin/main");
+        int behind = 0;
+        try { if (!behind_str.empty()) behind = std::stoi(behind_str); } catch (...) {}
+        const json out = {
+            {"ok",             true},
+            {"behind",         behind},
+            {"up_to_date",     behind == 0},
+            {"remote_commit",  remote_commit},
+            {"remote_subject", remote_subject},
         };
         res.set_content(out.dump(), "application/json");
     });
