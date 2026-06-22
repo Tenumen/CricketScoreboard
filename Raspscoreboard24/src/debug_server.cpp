@@ -99,6 +99,7 @@ json InningsToJson(const InningsSummary& inn) {
 constexpr const char* kStateDir          = "/var/lib/scoreboard24";
 constexpr const char* kPrevCommitPath    = "/var/lib/scoreboard24/prev_commit";
 constexpr const char* kPrevBinaryPath    = "/var/lib/scoreboard24/scoreboard24.prev";
+constexpr const char* kUpdateStatusPath  = "/var/lib/scoreboard24/update_status.json";
 
 bool FileExists(const char* path) {
     struct stat st{};
@@ -113,6 +114,21 @@ std::string ReadFirstLine(const char* path) {
     while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
         line.pop_back();
     return line;
+}
+
+// Read the JSON progress marker written by update.sh ({state,phase,ts}).
+// Returns an empty object if absent or unparseable — callers treat that as
+// "no update activity".
+json ReadUpdateStatus() {
+    std::ifstream in(kUpdateStatusPath);
+    if (!in) return json::object();
+    try {
+        json j;
+        in >> j;
+        return j.is_object() ? j : json::object();
+    } catch (...) {
+        return json::object();
+    }
 }
 
 // Run `git -C <repo_dir> <args...>`, capture stdout, trim trailing whitespace.
@@ -389,6 +405,14 @@ function fmtBatter(name, score) {
   return name ? `${name} (${score})` : '—';
 }
 let lastVersion = null;
+let updating = false;   // an "Update from git" is in flight
+let checking = false;   // a "Check for updates" is in flight
+function syncButtons() {
+  const v = lastVersion || {};
+  document.getElementById('btn-update').disabled       = updating;
+  document.getElementById('btn-check-update').disabled = updating || checking;
+  document.getElementById('btn-rollback').disabled     = updating || !v.has_rollback;
+}
 function showBanner(msg, isError) {
   const b = document.getElementById('action-banner');
   b.textContent = msg;
@@ -446,7 +470,24 @@ async function refresh() {
                       `${match ? '✓ matches build' : '⚠ source ahead of build'}</span>`;
     set('head_subject', v.head_subject || '—');
     set('prev_commit',  v.prev_commit  || '—');
-    document.getElementById('btn-rollback').disabled = !v.has_rollback;
+
+    // Reflect any in-flight / failed "Update from git" (status from update.sh).
+    const u = v.update || {};
+    const recent = u.ts && (Date.now() / 1000 - u.ts) < 600;
+    if (u.state === 'running' && recent) {
+      updating = true;
+      showBanner('⏳ Update in progress (' + (u.phase || '…') + '). '
+               + 'The scoreboard will restart; this page will reconnect automatically.');
+    } else {
+      if (updating && u.state === 'done') {
+        showBanner('✓ Update complete — now running ' + v.build_commit + '.');
+      } else if (u.state === 'failed' && recent) {
+        showBanner('⚠ Update FAILED during "' + (u.phase || '?') + '". The previous '
+                 + 'build is still running. See last_update.log on the Pi.', true);
+      }
+      updating = false;
+    }
+    syncButtons();
 
     updated.textContent = 'Updated ' + new Date().toLocaleTimeString();
     updated.classList.remove('stale');
@@ -460,7 +501,7 @@ document.getElementById('btn-check-update').addEventListener('click', async () =
   const btn  = document.getElementById('btn-check-update');
   const cell = document.getElementById('remote_commit');
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Checking…';
+  checking = true; syncButtons(); btn.textContent = 'Checking…';
   try {
     const r = await fetch('/api/check-update', { method: 'POST' });
     const d = await r.json().catch(() => ({}));
@@ -488,7 +529,7 @@ document.getElementById('btn-check-update').addEventListener('click', async () =
     showBanner('Update check failed: ' + err.message, true);
     cell.textContent = 'check failed';
   } finally {
-    btn.disabled = false; btn.textContent = orig;
+    checking = false; syncButtons(); btn.textContent = orig;
   }
 });
 
@@ -498,14 +539,22 @@ document.getElementById('btn-update').addEventListener('click', async () => {
     ? `Pull latest from GitHub, rebuild, and restart?\n\nCurrent build: ${v.build_commit}\nCurrent HEAD: ${v.head_commit}`
     : `Pull latest from GitHub, rebuild, and restart?`;
   if (!confirm(msg)) return;
+  updating = true; syncButtons();
+  showBanner('⏳ Update started — pulling & rebuilding. The scoreboard will restart '
+           + 'shortly; this page will reconnect automatically.');
   try {
     const r = await fetch('/api/update', { method: 'POST' });
     if (r.status === 202) {
-      showBanner('Update started. The scoreboard will restart in ~30 s. Page will reconnect.');
+      // Leave updating=true; refresh() tracks progress via /api/version.
+    } else if (r.status === 409) {
+      updating = false; syncButtons();
+      showBanner('An update is already in progress.', true);
     } else {
+      updating = false; syncButtons();
       showBanner(`Update request failed (HTTP ${r.status}).`, true);
     }
   } catch (err) {
+    updating = false; syncButtons();
     showBanner('Update request failed: ' + err.message, true);
   }
 });
@@ -791,13 +840,15 @@ DebugServer::DebugServer(const SharedMatchState* state,
         const std::string head_subject = RunGitCapture(repo_dir_, "log -1 --pretty=%s");
         const std::string prev_commit  = ReadFirstLine(kPrevCommitPath);
         const bool        has_rollback = FileExists(kPrevBinaryPath) && !prev_commit.empty();
-        const json out = {
+        json out = {
             {"build_commit", BUILD_GIT_HASH},
             {"head_commit",  head_commit.empty()  ? "unknown" : head_commit},
             {"head_subject", head_subject},
             {"prev_commit",  prev_commit},
             {"has_rollback", has_rollback},
         };
+        // Progress of any in-flight "Update from git" (written by update.sh).
+        out["update"] = ReadUpdateStatus();
         res.set_content(out.dump(), "application/json");
     });
 
@@ -843,6 +894,16 @@ DebugServer::DebugServer(const SharedMatchState* state,
     });
 
     server_->Post("/api/update", [this](const httplib::Request&, httplib::Response& res) {
+        // Reject if an update is already running, so the button can't stack a
+        // second concurrent build. (update.sh also holds a flock as the hard
+        // guarantee; this just gives the operator immediate feedback.)
+        const json st = ReadUpdateStatus();
+        if (st.value("state", std::string{}) == "running" &&
+            std::time(nullptr) - st.value("ts", static_cast<std::time_t>(0)) < 600) {
+            res.status = 409;
+            res.set_content("{\"error\":\"update already in progress\"}", "application/json");
+            return;
+        }
         const std::string script = scripts_dir_ + "/update.sh";
         std::fprintf(stderr, "POST /api/update → spawning %s\n", script.c_str());
         if (!SpawnDetachedScript(script)) {
