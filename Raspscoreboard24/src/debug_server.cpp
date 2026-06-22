@@ -152,6 +152,14 @@ bool SpawnDetachedScript(const std::string& script_path) {
 
     // --- child ---
     setsid();
+    // The server process sets SIGCHLD to SIG_IGN (see constructor) so it never
+    // accumulates zombies for these detached scripts. That disposition is
+    // inherited across fork+exec, and git's own waitpid() calls on its helper
+    // processes (git-remote-https, unpack-objects) then fail with ECHILD —
+    // which breaks `git pull` inside update.sh ("fatal: unpack-objects failed").
+    // Restore default child handling so the spawned script and its descendants
+    // reap their own children normally.
+    ::signal(SIGCHLD, SIG_DFL);
     // Close every fd above stdio. closefrom() isn't portable on glibc; an
     // explicit loop up to a conservative ceiling is.
     for (int fd = 3; fd < 256; ++fd) ::close(fd);
