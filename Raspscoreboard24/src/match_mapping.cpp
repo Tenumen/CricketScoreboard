@@ -212,14 +212,15 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
     //   any innings has real balls   -> IN_MATCH   (live scoreboard)
     //   opponent known, no balls yet -> PRE_MATCH  (team-vs-team splash)
     //   nothing set up               -> NO_MATCH   (idle logo)
-    // The opponent name is the "match is set up" signal: the home club is
-    // hardcoded, so away_team_name stays empty until the scorer's phone sends
-    // BTN/FTN. This keeps the wall on the logo until a real fixture exists.
+    // A known team name is the "match is set up" signal: both slots stay empty
+    // until the scorer's phone sends BTN/FTN, so the wall holds on the logo until
+    // a real fixture exists. Either name is enough to raise the pre-match splash
+    // (the bridge no longer sends a "Team ?" placeholder for the missing side).
     if (has_result) {
         st.phase = MatchPhase::POST_MATCH;
     } else if (any_innings_with_activity || force_live) {
         st.phase = MatchPhase::IN_MATCH;
-    } else if (!st.away_team_name.empty()) {
+    } else if (!st.home_team_name.empty() || !st.away_team_name.empty()) {
         st.phase = MatchPhase::PRE_MATCH;
     } else {
         st.phase = MatchPhase::NO_MATCH;
@@ -264,6 +265,18 @@ MapResult MapMatchDetail(const std::string& json_body, int our_club_id) {
     st.wkts         = ToInt(Field(*current, "wickets"));
     st.overs        = ToStr(Field(*current, "overs"));
     st.total_extras = ToInt(Field(*current, "total_extras"));
+
+    // Role-based team title: the side batting NOW (its score is the big number
+    // below) sits on top, the fielding side beneath — sourced straight from the
+    // current innings' batting/fielding names (the bridge sends what the app
+    // sent, no home/away remap). They swap correctly at the innings break. Fall
+    // back to the match-level home/away only if a per-innings name is absent.
+    {
+        const std::string bat_now   = ToStr(Field(*current, "team_batting_name"));
+        const std::string field_now = ToStr(Field(*current, "team_fielding_name"));
+        if (!bat_now.empty())   st.home_team = bat_now;
+        if (!field_now.empty()) st.opponent  = field_now;
+    }
 
     // Chasing logic. We are chasing iff a previous innings exists and was
     // batted by the OTHER team (not us). `our_club_id` resolves who 'we' are.

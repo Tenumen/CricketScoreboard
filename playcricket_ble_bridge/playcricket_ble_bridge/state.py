@@ -23,11 +23,9 @@ from typing import List, Optional
 from . import tokens as T
 
 
-# Neutral placeholder shown for a team slot whose name has not been sent yet,
-# but only once a match is forming (the other side's real name is known). It is
-# NOT a club default masquerading as a real name — it makes "not received yet"
-# visible, and the real app-sent name replaces it the moment it arrives.
-PENDING_TEAM_NAME = "Team ?"
+# A team slot whose name the app has not sent yet stays BLANK, not a "Team ?"
+# placeholder: the wall shows only what Play-Cricket has actually sent, and the
+# real name fills in the moment it arrives (see _assign_home_away).
 
 
 @dataclass
@@ -63,11 +61,11 @@ class Innings:
     bat: List[Bat] = field(default_factory=lambda: [Bat(position=1), Bat(position=2)])
     fow: List[Fow] = field(default_factory=list)
     # Pairs cricket: the app sends BTS as a bare total (no "/wkts") and a wicket
-    # is a -5 run penalty rather than a dismissal, so the team total can fall.
-    # Set True the first time a no-slash BTS arrives. While set, BTS is treated
-    # as the authoritative net total (it may decrease) and the COV-derived path
-    # is barred from driving the total — COV maps a 'W' ball to 0 runs, so it
-    # can never represent the -5 penalty and would otherwise re-inflate it.
+    # is a -5 run penalty rather than a dismissal. Latched True the first time a
+    # no-slash BTS arrives. BTS is ALWAYS the authoritative total now (set
+    # directly, may rise or fall) — this flag no longer gates the score; it is
+    # used only to suppress the innings-summary extras derivation, which is
+    # meaningless in pairs (batter scores go negative on the -5 penalty).
     pairs: bool = False
 
     # Dismissed batters, in order of dismissal, for this innings. Each entry is
@@ -85,19 +83,17 @@ class Innings:
     # live dismissal — _h_lwn skips adding it to the card.
     _stale_wicket: bool = False
 
-    # COV-derived running tallies. The Play-Cricket Scorer app sometimes
-    # skips BTS / OVB updates between balls (it only refreshes them on
-    # certain events), but COV — the ball-by-ball over summary — is sent
-    # every single ball. We parse it as a fallback so the wall never lags.
-    _legal_balls_at_over_start: int = 0
-    _runs_at_over_start:        int = 0
-    _prev_cov_balls:            int = 0
-    # Per-batter run derivation. The app only sends B*S at the connection
-    # snapshot; subsequent balls arrive via COV + B*K (strike). We attribute
-    # each new ball's runs to whichever batter B*K marks as on-strike at the
-    # moment the ball arrives. `_cov_balls_attributed` keeps us idempotent.
-    _striker_idx:           int = 0   # 0 = bat[0] facing, 1 = bat[1] facing
-    _cov_balls_attributed:  int = 0
+    # COV is used ONLY to fire per-ball / per-wicket event splashes now — it no
+    # longer derives runs or overs (BTS/OVB own those authoritatively, and COV
+    # can't read extras: a 'wd'/'2nb' token would corrupt any derived figure).
+    # These two cursors keep the event tap idempotent across polls and over
+    # rollovers. See _h_cov.
+    _prev_cov_balls:       int = 0
+    _cov_balls_attributed: int = 0
+    # Striker side per the last B*K token (0 = bat[0], 1 = bat[1]). Tracked for a
+    # possible future on-strike marker; NOT used to attribute runs (B*S is the
+    # authoritative per-batter source) and NOT drawn on the wall today.
+    _striker_idx: int = 0
 
 
 @dataclass
@@ -556,33 +552,46 @@ def _ensure_second_innings(s: MatchState, batting_team_name: str) -> None:
 
 
 def _h_bts(s: MatchState, value: str) -> bool:
+    """BTS = the batting side's authoritative team total, 'runs/wkts' (full
+    cricket) or a bare 'runs' (pairs, or a template that omits wickets).
+
+    The app IS the source of truth: set runs directly, in BOTH directions, so a
+    scorer's correction (e.g. 17 -> 15 after removing a mis-entered ball) takes
+    effect on the very next refresh. No forward-only clamp — that clamp was the
+    root cause of corrections never reaching the wall.
+
+    Wickets are only touched when the value actually carries them (a '/'). A
+    bare total carries NO wicket information, so it must NOT reset wickets to 0
+    — doing so was the cause of the erratic/disappearing wickets whenever the
+    app sent a bare BTS."""
     runs, wkts = _parse_score(value)
     inn = _current_innings(s)
-    # A bare numeric BTS (no "/wkts") means pairs cricket; latch the mode so the
-    # COV path knows to keep its hands off the total (see _h_cov).
-    if value.strip() and "/" not in value:
+    has_wkts = "/" in value
+    # Latch pairs mode on a bare total (used only by the innings-summary extras
+    # derivation — see Innings.pairs). It no longer affects the score path.
+    if value.strip() and not has_wkts:
         inn.pairs = True
-    if inn.pairs:
-        # Pairs: BTS is the authoritative net total and a wicket docks 5 runs,
-        # so it can legitimately fall — trust it as an absolute value.
-        new_runs = runs
-    else:
-        # Full cricket: runs go forward only — the COV-derived path may have us
-        # at a higher total already because BTS is sometimes a delivery behind.
-        new_runs = max(inn.runs, runs)
-    if inn.runs == new_runs and inn.wickets == wkts:
-        return False
-    inn.runs    = new_runs
-    inn.wickets = wkts
-    s.status    = "In Progress"
-    return True
+    changed = False
+    if inn.runs != runs:
+        inn.runs = runs
+        changed = True
+    if has_wkts and inn.wickets != wkts:
+        inn.wickets = wkts
+        changed = True
+    if changed:
+        s.status = "In Progress"
+    return changed
 
 
 def _h_ovb(s: MatchState, value: str) -> bool:
+    """OVB = the authoritative over.ball count, extras-aware (the app has
+    already excluded wides/no-balls from the legal-ball count). Set it directly,
+    in both directions, so a corrected over count reaches the wall. No
+    forward-only clamp and no COV-derived guess — OVB is the sole owner of the
+    over count."""
     overs = _parse_overs(value)
     inn = _current_innings(s)
-    # Overs go forward only (see BTS for the same rationale).
-    if _legal_balls_from_overs(overs) <= _legal_balls_from_overs(inn.overs):
+    if inn.overs == overs:
         return False
     inn.overs = overs
     s.status = "In Progress"
@@ -606,65 +615,40 @@ def _h_ovr(s: MatchState, value: str) -> bool:
 
 
 def _h_cov(s: MatchState, value: str) -> bool:
-    """COV is the running ball-by-ball summary of the current over. It is
-    refreshed on every delivery, including ones where BTS/OVB aren't sent.
-    Treat it as the authoritative source for "where in the over we are" and
-    derive runs/overs from it, never letting them go backwards.
+    """COV is the ball-by-ball summary of the current over, refreshed every
+    delivery. It is used ONLY to fire the per-ball / per-wicket event splashes
+    — it never drives the score.
 
-    Detect end-of-over by ball-count shrinkage between successive COVs and
-    bank the current totals into _legal_balls_at_over_start /
-    _runs_at_over_start so the next over starts from a known baseline. On
-    rollover the per-batter attribution cursor resets too.
+    Why not derive runs/overs from COV: the strip lists one token per delivery
+    including wides/no-balls (a 'wd'/'2nb' token), so counting its length
+    over-counts legal balls, and its per-token run parse can't read the extra's
+    value. The team total (BTS), over.ball (OVB) and per-batter runs (B*S) all
+    arrive authoritatively and set their own fields directly — deriving anything
+    from COV only re-introduced drift and blocked corrections. So COV is now a
+    pure event tap.
 
-    Each new ball's runs are credited to whichever bat[*] B*K marks as on
-    strike — the app stops sending B*S after the connection-init snapshot,
-    so this attribution is the only way to keep per-batter scores live.
-    """
+    End-of-over is detected by ball-count shrinkage between successive COVs,
+    which resets the attribution cursor so the first ball of the new over emits
+    a fresh event."""
     inn = _current_innings(s)
     balls_meta = _parse_cov_balls_meta(value)
-    balls_list = [r for r, _ in balls_meta]
     balls      = len(balls_meta)
-    runs       = sum(balls_list)
 
     if balls < inn._prev_cov_balls and inn._prev_cov_balls > 0:
-        inn._legal_balls_at_over_start += inn._prev_cov_balls
-        inn._runs_at_over_start         = max(inn._runs_at_over_start, inn.runs)
-        inn._cov_balls_attributed       = 0
-
+        inn._cov_balls_attributed = 0
     inn._prev_cov_balls = balls
 
-    # Credit any not-yet-attributed balls to the current striker, and update
-    # the per-ball event counters consumed by the scoreboard.
-    striker_changed = False
+    changed = False
     if balls > inn._cov_balls_attributed:
         for ball_runs, ball_is_wicket in balls_meta[inn._cov_balls_attributed:balls]:
             s.last_ball_id        += 1
             s.last_ball_runs       = ball_runs
             s.last_ball_is_wicket  = ball_is_wicket
-            if ball_runs > 0:
-                inn.bat[inn._striker_idx].runs += ball_runs
-                striker_changed = True
+            changed = True
         inn._cov_balls_attributed = balls
-
-    derived_runs = inn._runs_at_over_start + runs
-
-    # NB: the over.ball count is NOT derived here. COV lists one token per
-    # delivery, including wides/no-balls, so counting its length as legal balls
-    # over-counts the over by one per extra (a wide must add a ball, not end the
-    # over early). The app already sends the correct, extras-aware over.ball in
-    # OVB, so _h_ovb owns inn.overs; COV only drives runs and striker
-    # attribution. (The _legal_balls_at_over_start banking above is retained
-    # because the runs baseline _runs_at_over_start rides the same rollover.)
-    changed = False
-    # In pairs the COV strip can't see the -5 wicket penalty (a 'W' ball is 0
-    # runs), so it must not drive the team total — BTS owns it there. In full
-    # cricket COV keeps the total live on balls where BTS lags a delivery.
-    if not inn.pairs and derived_runs > inn.runs:
-        inn.runs = derived_runs
-        changed = True
-    if changed or striker_changed:
+    if changed:
         s.status = "In Progress"
-    return changed or striker_changed
+    return changed
 
 
 def _h_batter_name(idx: int, s: MatchState, value: str) -> bool:
@@ -695,10 +679,9 @@ def _assign_home_away(s: MatchState) -> bool:
     swap never re-swaps the labels. The displayed names always come straight
     from the app — no hint matching and no club default substitution.
 
-    If a match is forming (one side known) but the other name has not arrived
-    yet, the missing slot shows PENDING_TEAM_NAME rather than a blank or a stale
-    value; the real name replaces it the moment it arrives. Returns True if
-    home/away changed.
+    A side whose name has not arrived yet stays BLANK (not a "Team ?"
+    placeholder): the wall shows only what the app has actually sent, and the
+    real name fills in the moment it arrives. Returns True if home/away changed.
     """
     first = s.innings[0]
     cur   = _current_innings(s)
@@ -718,13 +701,6 @@ def _assign_home_away(s: MatchState) -> bool:
     away = s.away_team_name_override or other
     if not home and not away:
         return False
-
-    # One side known but the other's name not sent yet -> show a clear pending
-    # placeholder rather than a blank. Never fires while nothing is known
-    # (idle), and the two slots can never both be the placeholder.
-    if home or away:
-        home = home or PENDING_TEAM_NAME
-        away = away or PENDING_TEAM_NAME
 
     changed = False
     if home and s.home_team_name != home:
@@ -830,22 +806,17 @@ def _h_batter_balls(idx: int, s: MatchState, value: str) -> bool:
 
 
 def _h_batter_strike(idx: int, s: MatchState, value: str) -> bool:
-    """B1K1 / B2K1 — striker indicator. Update _striker_idx so the COV
-    handler attributes subsequent balls to the right batter. Either '1'
-    (this batter is now on strike) or '0' (the other batter is) is honoured.
-    """
+    """B1K / B2K — striker indicator ('1' = this batter on strike, '0' = the
+    other). Recorded in _striker_idx for a possible future on-strike marker, but
+    it drives nothing displayed today (per-batter runs come authoritatively from
+    B*S), so it never reports a change — that would trigger a needless redraw."""
     inn = _current_innings(s)
     v = value.strip()
     if v == "1":
-        new_idx = idx
+        inn._striker_idx = idx
     elif v == "0":
-        new_idx = 1 - idx
-    else:
-        return False
-    if inn._striker_idx == new_idx:
-        return False
-    inn._striker_idx = new_idx
-    return True
+        inn._striker_idx = 1 - idx
+    return False
 
 
 def _h_lwk(s: MatchState, value: str) -> bool:

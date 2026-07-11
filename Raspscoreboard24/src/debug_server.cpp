@@ -306,21 +306,24 @@ constexpr const char* kIndexHtml = R"HTML(<!doctype html>
   <div class="section">Match identity</div>
   <table>
     <tr><th>Home club</th><td id="home_club_name">—</td></tr>
-    <tr><th>Home team</th><td id="home_team_name">—</td></tr>
+    <tr><th>Team batting 1st</th><td id="home_team_name">—</td></tr>
     <tr><th>Away club</th><td id="away_club_name">—</td></tr>
-    <tr><th>Away team</th><td id="away_team_name">—</td></tr>
+    <tr><th>Team fielding 1st</th><td id="away_team_name">—</td></tr>
   </table>
 
   <div class="section">Team names (manual override)</div>
   <table>
-    <tr><th>Home name</th><td><input id="in-home-name" type="text" placeholder="—"></td></tr>
-    <tr><th>Away name</th><td><input id="in-away-name" type="text" placeholder="—"></td></tr>
+    <tr><th>Team batting 1st</th><td><input id="in-home-name" type="text" placeholder="—"></td></tr>
+    <tr><th>Team fielding 1st</th><td><input id="in-away-name" type="text" placeholder="—"></td></tr>
   </table>
   <div class="actions">
     <button id="btn-set-names">Apply names</button>
   </div>
-  <div class="hint">Type a name to override the scorer app for that side. Leave a
-    box blank and Apply to fall back to the app’s name (or “Team ?” until it arrives).</div>
+  <div class="hint">The two boxes are the two teams: the side that <b>batted first</b>
+    and the side that <b>fielded first</b> — that mapping is fixed for the match and
+    the name follows its team when they swap at the innings break. Look at the rows
+    above to see which real name each box currently holds, then correct whichever is
+    wrong. Leave a box blank and Apply to fall back to the app’s name.</div>
 
   <div class="section">Live state</div>
   <table>

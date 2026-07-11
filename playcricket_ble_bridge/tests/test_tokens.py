@@ -120,32 +120,32 @@ def test_positional_when_our_side_fields_first():
     assert snap.innings[0].team_fielding_name == "Aston on Trent Village CC 1st XI"
 
 
-def test_only_fielding_name_shows_pending_home():
+def test_only_fielding_name_leaves_home_blank():
     """Only the fielding name arrived (the batting-team name hasn't been sent
-    yet, e.g. it wasn't re-pushed after a reconnect). The home slot shows the
-    'Team ?' pending placeholder — NOT a fabricated club name."""
+    yet, e.g. it wasn't re-pushed after a reconnect). The not-yet-known home slot
+    stays BLANK — the wall shows only what the app has actually sent, never a
+    "Team ?" placeholder."""
     acc = MatchAccumulator()
     acc.apply("FTN", "Away Test")                  # only the fielding name
     snap = acc.snapshot()
-    assert snap.home_team_name == "Team ?"
+    assert snap.home_team_name == ""
     assert snap.away_team_name == "Away Test"
 
 
-def test_only_batting_name_shows_pending_away():
-    """Mirror case: only the batting name arrived, so the away slot is pending."""
+def test_only_batting_name_leaves_away_blank():
+    """Mirror case: only the batting name arrived, so the away slot stays blank."""
     acc = MatchAccumulator()
     acc.apply("BTN", "Melbourne 1st XI")           # only the batting name
     snap = acc.snapshot()
     assert snap.home_team_name == "Melbourne 1st XI"
-    assert snap.away_team_name == "Team ?"
+    assert snap.away_team_name == ""
 
 
-def test_real_name_replaces_pending_placeholder():
-    """The placeholder is provisional: once the missing app-sent name arrives it
-    replaces 'Team ?'."""
+def test_real_name_fills_blank_slot():
+    """The blank slot fills the moment the missing app-sent name arrives."""
     acc = MatchAccumulator()
-    acc.apply("FTN", "Away Test")                  # home still pending
-    assert acc.snapshot().home_team_name == "Team ?"
+    acc.apply("FTN", "Away Test")                  # home still blank
+    assert acc.snapshot().home_team_name == ""
     acc.apply("BTN", "Aston on Trent Village CC")  # batting-team name turns up
     snap = acc.snapshot()
     assert snap.home_team_name == "Aston on Trent Village CC"
@@ -262,74 +262,77 @@ def test_realistic_scoring_sequence_produces_in_progress_match():
     assert runs == [34, 67]
 
 
-def test_cov_drives_runs_ovb_owns_overs():
-    """Scenario from real Pixel 9a output 2026-05-19: app sends COV every ball
-    but BTS / OVB only on some balls. COV keeps the RUNS live between OVB
-    updates, but OVB is the authoritative over.ball -- COV must never advance
-    the over count itself (counting COV tokens as legal balls mis-counts when an
-    extra is bowled). So after ball 6 with no further OVB, the over reads the
-    last OVB value (0.5), not a COV-derived 1.0, while runs are still 5."""
+def test_cov_never_drives_runs_or_overs():
+    """Core mandate: the wall shows what the app sends. COV (the ball-by-ball
+    strip) drives NEITHER the runs NOR the over count -- BTS owns runs, OVB owns
+    overs. Here the last BTS is 4/0 and the last OVB is 0.5, so despite the COV
+    strip listing five scoring tokens the totals read exactly the app's last
+    authoritative values, and the two trailing COVs with no BTS/OVB change
+    nothing."""
     acc = MatchAccumulator()
     for code, val in [
         ("COV", ". "),                # ball 1: dot
         ("COV", ". 1 "),               # ball 2: 1 run
         ("COV", ". 1 1 "),             # ball 3
         ("COV", ". 1 1 1 "),           # ball 4
-        ("OVB", "0.5"),                # explicit only after ball 5
-        ("BTS", "4/0"),
-        ("COV", ". 1 1 1 1 "),         # ball 5 (BTS / OVB already arrived)
-        ("COV", ". 1 1 1 1 1 "),       # ball 6 — no BTS / OVB follow-up
+        ("OVB", "0.5"),                # explicit over.ball
+        ("BTS", "4/0"),                # authoritative total
+        ("COV", ". 1 1 1 1 "),         # ball 5 — COV only, no BTS/OVB
+        ("COV", ". 1 1 1 1 1 "),       # ball 6 — COV only, no BTS/OVB
     ]:
         acc.apply(code, val)
     inn = acc.snapshot().innings[-1]
-    assert inn.runs  == 5,   f"expected 5 runs, got {inn.runs}"
+    assert inn.runs  == 4,   f"expected BTS-owned 4 runs, got {inn.runs}"
     assert inn.overs == "0.5", f"expected OVB-owned 0.5 overs, got {inn.overs!r}"
 
 
-def test_cov_runs_bank_across_over_rollover():
-    """COV still banks the running total across the end-of-over rollover (so the
-    next over's runs accumulate on top of the previous over's), but it does not
-    touch the over count -- that is OVB's job, so without any OVB the over stays
-    0.0 here while runs carry over correctly."""
+def test_cov_alone_leaves_score_untouched():
+    """With no BTS/OVB at all, COV is a pure event tap: the score stays 0/0.0
+    however many balls the strip lists."""
     acc = MatchAccumulator()
-    # Complete one over of 6 singles, then a fresh over with one dot.
     for v in [". ", ". 1 ", ". 1 1 ", ". 1 1 1 ", ". 1 1 1 1 ", ". 1 1 1 1 1 "]:
         acc.apply("COV", v)
     acc.apply("COV", " ")                  # over rollover: empty COV
     acc.apply("COV", ". ")                 # ball 1 of over 2: dot
     inn = acc.snapshot().innings[-1]
-    assert inn.runs  == 5
-    assert inn.overs == "0.0"              # no OVB sent -> COV doesn't advance it
+    assert inn.runs  == 0
+    assert inn.overs == "0.0"
+    # ...but the per-ball event counter DID advance (splashes still fire).
+    assert acc.snapshot().last_ball_id > 0
 
 
 def test_extra_does_not_advance_over_count():
-    """Match-day bug: a wide/no-ball is an extra COV delivery but NOT a legal
-    ball, so the over must not advance for it. The app's OVB is extras-aware, so
-    the over count follows OVB even though the COV strip carries one more token
-    than legal balls bowled. Previously COV counted every token as a legal ball
-    and pushed the over a delivery further for each extra."""
+    """Match-day bug (Problem 2): a wide/no-ball is an extra COV delivery but NOT
+    a legal ball, so the over must not advance for it. The over count follows the
+    app's extras-aware OVB, and COV -- which lists one token per delivery
+    including the wide -- can never push it forward. Runs come from BTS."""
     acc = MatchAccumulator()
     # Over so far: legal, legal, WIDE, legal, legal -> 5 COV tokens but only 4
     # legal balls. The wide shows as an extra scoring token in the strip.
     acc.apply("COV", "1 ")
     acc.apply("COV", "1 1 ")
-    acc.apply("COV", "1 1 1 ")
-    acc.apply("COV", "1 1 1 1 ")
-    acc.apply("COV", "1 1 1 1 1 ")
+    acc.apply("COV", "1 1 wd ")
+    acc.apply("COV", "1 1 wd 1 ")
+    acc.apply("COV", "1 1 wd 1 1 ")
     acc.apply("OVB", "0.4")               # extras-aware: only 4 legal balls
+    acc.apply("BTS", "5/0")               # authoritative total incl. the wide
     inn = acc.snapshot().innings[-1]
-    assert inn.overs == "0.4"             # OVB-owned, not the COV-derived 0.5
-    assert inn.runs  == 5                 # COV still totals the runs (incl. wide)
+    assert inn.overs == "0.4"             # OVB-owned, never a COV-derived 0.5
+    assert inn.runs  == 5                 # BTS-owned
 
 
-def test_bts_does_not_regress_runs_when_arriving_stale():
-    """COV-derived runs may exceed the most recent BTS; a stale BTS must not
-    pull the total back down."""
+def test_bts_correction_lowers_runs_immediately():
+    """Problem 3: when the scorer corrects a mistake, the app re-sends BTS with a
+    LOWER value on the next refresh. It must take effect at once -- the old
+    forward-only max() clamp that ignored it was the root cause of corrections
+    never reaching the wall. Real data: 24 June, BTS 17/1 -> 15/1."""
     acc = MatchAccumulator()
-    acc.apply("COV", ". 1 1 1 1 1 ")       # COV-derives 5 runs
-    acc.apply("BTS", "4/0")                # stale BTS for ball 5; must not regress
+    acc.apply("BTS", "17/1")
+    assert acc.snapshot().innings[-1].runs == 17
+    assert acc.apply("BTS", "15/1") is True     # correction applied, not clamped
     inn = acc.snapshot().innings[-1]
-    assert inn.runs == 5
+    assert inn.runs == 15
+    assert inn.wickets == 1
 
 
 def test_bts_pairs_total_may_fall_on_wicket():
@@ -355,15 +358,32 @@ def test_pairs_cov_does_not_reinflate_total_past_penalty():
     assert inn.runs == 219
 
 
-def test_bts_full_format_still_clamps_runs_forward():
-    """Regression guard: full-format BTS (with /wkts) keeps the forward-only
-    behaviour, so a stale lower value never pulls the total back."""
+def test_bts_full_format_applies_correction_downward():
+    """Full-format BTS (with /wkts) is authoritative in BOTH directions: a lower
+    corrected value overwrites the higher one. (Formerly this asserted the
+    forward-only clamp -- the very bug behind Problem 3 -- now inverted.)"""
     acc = MatchAccumulator()
     acc.apply("BTS", "224/3")
-    assert acc.apply("BTS", "219/3") is False        # clamped: no change
+    assert acc.apply("BTS", "219/3") is True         # correction applied
     inn = acc.snapshot().innings[-1]
-    assert inn.runs == 224
+    assert inn.runs == 219
     assert inn.pairs is False
+
+
+def test_bare_bts_does_not_reset_wickets():
+    """Problem 5: a bare BTS (no '/wkts') carries no wicket information, so it
+    must leave the wicket count alone -- never reset it to 0. The log had 173
+    bare BTS values; the old code zeroed wickets on each, causing the erratic /
+    disappearing wickets."""
+    acc = MatchAccumulator()
+    acc.apply("BTS", "48/2")                 # 2 down
+    assert acc.snapshot().innings[-1].wickets == 2
+    acc.apply("BTS", "49")                   # bare total -> runs update only
+    inn = acc.snapshot().innings[-1]
+    assert inn.runs == 49
+    assert inn.wickets == 2                   # unchanged, NOT reset to 0
+    acc.apply("BTS", "55/3")                  # next full BTS updates wickets
+    assert acc.snapshot().innings[-1].wickets == 3
 
 
 def test_b1n_b2n_set_batsman_names():
@@ -383,52 +403,32 @@ def test_f1n_f1s_recognised_no_longer_unknown():
     assert "F1S" not in acc.unknown_codes()
 
 
-def test_cov_credits_runs_to_current_striker():
-    """Real-world Pixel 9a behaviour 2026-05-19: app emits B1S/B2S only at
-    the connection-init snapshot. After that, per-batter runs must be
-    derived from COV + B*K strike-tracking."""
+def test_cov_never_touches_batter_runs():
+    """Per-batter runs are authoritative from B1S/B2S (the app sends them live,
+    every ball -- confirmed in the 24 June log). COV must NOT add to them: doing
+    both let the two paths fight and corrupt the scores. Here COV lists a six and
+    a two but the batter runs stay exactly what B*S set, and a later B*S
+    correction (downward) is honoured."""
     acc = MatchAccumulator()
-    # Reconnect snapshot: COV shows first ball of over was a six, B1S says
-    # B1 already has 9 (the snapshot includes prior overs), B2 has 2.
-    acc.apply("COV", "6 ")
     acc.apply("B1S", "9")
-    acc.apply("B1K", "1")
     acc.apply("B2S", "2")
-    acc.apply("B2K", "0")
-    inn = acc.snapshot().innings[-1]
-    assert inn.bat[0].runs == 9 and inn.bat[1].runs == 2
-
-    # Ball 2 of the over: 2 runs by B1 (still on strike).
+    acc.apply("COV", "6 ")       # COV must not credit anyone
     acc.apply("COV", "6 2 ")
-    assert acc.snapshot().innings[-1].bat[0].runs == 11
-
-    # Ball 3: single, strike rotates to B2.
-    acc.apply("COV", "6 2 1 ")
-    acc.apply("B1K", "0")
-    acc.apply("B2K", "1")
     inn = acc.snapshot().innings[-1]
-    assert inn.bat[0].runs == 12   # 11 + 1 (last ball B1 faced)
-    assert inn._striker_idx == 1
+    assert inn.bat[0].runs == 9      # unchanged by COV
+    assert inn.bat[1].runs == 2
 
-    # Balls 4-6: three doubles by B2, no strike rotations.
-    acc.apply("COV", "6 2 1 2 ")
-    acc.apply("COV", "6 2 1 2 2 ")
-    acc.apply("COV", "6 2 1 2 2 2 ")
-    inn = acc.snapshot().innings[-1]
-    assert inn.bat[1].runs == 8    # 2 + 6
-    assert inn.bat[0].runs == 12   # unchanged across over
-    assert inn.runs == 15
-    # No OVB was sent, so the over count is untouched by COV (OVB owns it).
-    assert inn.overs == "0.0"
+    acc.apply("B1S", "8")            # scorer correction, downward
+    assert acc.snapshot().innings[-1].bat[0].runs == 8
 
 
-def test_b2s_snapshot_overrides_prior_cov_attribution():
-    """A late B*S snapshot (e.g. after a reconnect mid-over) should replace
-    whatever the COV path had derived."""
+def test_batter_strike_token_causes_no_redraw():
+    """B*K is accepted (recorded for a possible future on-strike marker) but is
+    not drawn today, so it must not report a change -- otherwise every strike
+    swap would trigger a needless wall redraw."""
     acc = MatchAccumulator()
-    acc.apply("COV", "6 ")       # COV credits 6 to default striker (B1)
-    acc.apply("B1S", "9")        # snapshot says actually 9
-    assert acc.snapshot().innings[-1].bat[0].runs == 9
+    assert acc.apply("B1K", "1") is False
+    assert acc.apply("B2K", "1") is False
 
 
 def test_result_summary_envelope_shape():
@@ -440,6 +440,55 @@ def test_result_summary_envelope_shape():
     assert isinstance(env["result_summary"], list)
     assert env["result_summary"][0]["id"] == 9000001
     assert env["result_summary"][0]["home_team_name"] == "Aston on Trent"
+
+
+# ---------- role-based team names (Problem 4) --------------------------------
+
+def test_serializer_emits_both_batting_and_fielding_names():
+    """Each innings dict carries BOTH the batting and fielding team names, so the
+    wall can show the current innings' two sides directly (role-based)."""
+    acc = MatchAccumulator()
+    acc.apply("BTN", "Etwall CC Hawks")
+    acc.apply("FTN", "Aston on Trent 1st XI")
+    acc.apply("BTS", "40/2")
+    detail = serializers.match_detail_to_dict(acc.snapshot())
+    inn1 = detail["innings"][0]
+    assert inn1["team_batting_name"]  == "Etwall CC Hawks"
+    assert inn1["team_fielding_name"] == "Aston on Trent 1st XI"
+
+
+def test_serializer_roles_swap_second_innings():
+    """The two teams swap batting/fielding roles at the innings break; the
+    serializer reflects that so the wall always names the side that is batting
+    now on top."""
+    acc = MatchAccumulator()
+    acc.apply("BTN", "Etwall CC Hawks")            # innings 1: Etwall bat
+    acc.apply("FTN", "Aston on Trent 1st XI")      # Aston field
+    acc.apply("BTS", "120/8")
+    acc.apply("BTN", "Aston on Trent 1st XI")      # innings 2: Aston chase
+    detail = serializers.match_detail_to_dict(acc.snapshot())
+    inn2 = detail["innings"][1]
+    assert inn2["team_batting_name"]  == "Aston on Trent 1st XI"
+    assert inn2["team_fielding_name"] == "Etwall CC Hawks"
+
+
+def test_override_follows_physical_team_across_innings():
+    """An operator name override pins a PHYSICAL team, so it must follow that team
+    when the roles swap: the side that batted first (home) fields in innings 2."""
+    acc = MatchAccumulator()
+    acc.apply("BTN", "Etwall CC Hawks")            # home = batted first
+    acc.apply("FTN", "Aston Wrong Name")           # away = fielded first
+    acc.apply("BTS", "120/8")
+    acc.apply("BTN", "Aston Wrong Name")           # innings 2 batting
+    acc.set_team_names(home="Etwall CC Hawks", away="Aston on Trent 1st XI")
+    detail = serializers.match_detail_to_dict(acc.snapshot())
+    inn1, inn2 = detail["innings"][0], detail["innings"][1]
+    # Innings 1: Etwall bat, Aston field.
+    assert inn1["team_batting_name"]  == "Etwall CC Hawks"
+    assert inn1["team_fielding_name"] == "Aston on Trent 1st XI"
+    # Innings 2: Aston bat (override followed them), Etwall field.
+    assert inn2["team_batting_name"]  == "Aston on Trent 1st XI"
+    assert inn2["team_fielding_name"] == "Etwall CC Hawks"
 
 
 # ---------- per-ball event counters (consumed by scoreboard splashes) --------
@@ -539,12 +588,12 @@ def test_blank_override_reverts_that_side_to_app_name():
 
 def test_override_drives_display_before_any_app_name():
     """Pre-match: the operator can name a side before any BTN/FTN arrives; the
-    un-named side shows the pending placeholder."""
+    un-named side stays blank (no placeholder)."""
     acc = MatchAccumulator()
     acc.set_team_names(home="Aston 1st XI", away="")
     snap = acc.snapshot()
     assert snap.home_team_name == "Aston 1st XI"
-    assert snap.away_team_name == "Team ?"
+    assert snap.away_team_name == ""
 
 
 def test_reset_clears_overrides():

@@ -72,6 +72,7 @@ def _innings_summary_to_dict(sm: "S.InningsSummary") -> dict:
 def _innings_to_dict(inn: S.Innings) -> dict:
     return {
         "team_batting_name":  inn.team_batting_name,
+        "team_fielding_name": inn.team_fielding_name,
         "team_batting_id":    "",
         "innings_number":     inn.innings_number,
         "extra_byes":         "0",
@@ -164,21 +165,38 @@ def match_detail_to_dict(m: S.MatchState) -> dict:
             "wicket_id":      m.last_wicket_id,
         },
     })
-    # Anchor each innings' displayed batting-team name to the positionally
-    # resolved home/away names (home bats first, so innings 1 -> home, innings
-    # 2 -> away). Those fields are computed by _assign_home_away and already
-    # fold in any operator override, so this is the single source of truth the
-    # Console also uses. It deliberately overrides the raw per-innings
-    # team_batting_name, which can be stale/duplicated when innings 2 is opened
-    # from a target (BTT) before a distinguishing BTN arrives -- the cause of
-    # the post-match splash showing both teams the same name. Only the displayed
-    # name is set; internal state is untouched.
-    _resolved = {1: m.home_team_name or m.home_team_name_override,
-                 2: m.away_team_name or m.away_team_name_override}
+    # Resolve each innings' displayed batting AND fielding names so the wall
+    # (which reads the current innings' two sides directly) always shows the
+    # right pair. Precedence, per the "show what the app sent" mandate:
+    #   1. operator override  (pins a physical team; follows it across innings)
+    #   2. the raw per-innings BTN/FTN the app actually sent this innings
+    #   3. positional fill    (only when the app hasn't sent that role yet)
+    # The two teams swap roles each innings. `home` = batted first, `away` =
+    # fielded first, so:
+    #   innings 1 -> batting = home,  fielding = away
+    #   innings 2 -> batting = away,  fielding = home
+    # (2) beats (3) deliberately: if the app sends FTN='Aston' in innings 2, that
+    # explicit value must win over a positional guess derived from a stale/wrong
+    # innings-1 name. (3) still supplies a fielding name for the common case
+    # where the app doesn't re-send FTN in the 2nd innings.
+    home_fill = m.home_team_name or m.home_team_name_override
+    away_fill = m.away_team_name or m.away_team_name_override
+    _bat_fill   = {1: home_fill, 2: away_fill}
+    _field_fill = {1: away_fill, 2: home_fill}
+    home_ov = m.home_team_name_override
+    away_ov = m.away_team_name_override
+    _bat_ov   = {1: home_ov, 2: away_ov}
+    _field_ov = {1: away_ov, 2: home_ov}
     for inn_dict, inn in zip(base["innings"], m.innings):
-        name = _resolved.get(inn.innings_number)
-        if name:
-            inn_dict["team_batting_name"] = name
+        num = inn.innings_number
+        if _bat_ov.get(num):
+            inn_dict["team_batting_name"] = _bat_ov[num]
+        elif not inn_dict["team_batting_name"] and _bat_fill.get(num):
+            inn_dict["team_batting_name"] = _bat_fill[num]
+        if _field_ov.get(num):
+            inn_dict["team_fielding_name"] = _field_ov[num]
+        elif not inn_dict["team_fielding_name"] and _field_fill.get(num):
+            inn_dict["team_fielding_name"] = _field_fill[num]
     return base
 
 
