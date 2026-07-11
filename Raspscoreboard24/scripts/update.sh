@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# update.sh — pull latest commit, rebuild, restart the scoreboard service.
-# Snapshots the previous binary + commit hash so rollback.sh can revert.
+# update.sh — pull latest commit, rebuild the C++ scoreboard, deploy the Python
+# BLE bridge, and restart BOTH services. Snapshots the previous binary + commit
+# hash so rollback.sh can revert.
+#
+# The one git pull updates the whole repo, so both halves ship from the same
+# commit. The bridge is not compiled — its package is rsynced from the repo copy
+# into the running bridge dir and its service restarted. NOTE: restarting the
+# bridge drops any live BLE link and clears in-progress score state, so only run
+# this between matches (the admin button warns the operator of exactly that).
 #
 # Spawned (detached) by the admin-console "Update from git" button.
 # Also runnable directly: `sudo bash scripts/update.sh`.
@@ -18,6 +25,10 @@ export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0='*'
 
 REPO_DIR="${REPO_DIR:-/home/tenumen/scoreboard24}"
+# Running Python bridge dir (systemd WorkingDirectory of playcricket-ble-bridge).
+# Its inner package is replaced from the repo copy on each update.
+BRIDGE_RUN_DIR="${BRIDGE_RUN_DIR:-/home/tenumen/playcricket_ble_bridge}"
+BRIDGE_SERVICE="playcricket-ble-bridge.service"
 STATE_DIR="/var/lib/scoreboard24"
 LOG="$STATE_DIR/last_update.log"
 STATUS="$STATE_DIR/update_status.json"
@@ -77,11 +88,33 @@ trap 'status failed "$PHASE"' ERR
     echo "make..."
     make -j2
 
-    # 4. Restart via systemd. KillMode=process means this script (a separate
-    #    process tree from scoreboard24) keeps running through the restart.
+    # 4. Restart the C++ scoreboard via systemd. KillMode=process means this
+    #    script (a separate process tree from scoreboard24) keeps running through
+    #    the restart, so it can go on to deploy the bridge below.
     PHASE=restart; status running restart
-    echo "=== restarting $(date -Iseconds) ==="
+    echo "=== restarting scoreboard24 $(date -Iseconds) ==="
     systemctl restart scoreboard24.service
+
+    # 5. Deploy the Python BLE bridge from the just-pulled repo copy and restart
+    #    it. The bridge isn't built — we mirror its package into the running dir.
+    #    Resolve the repo root from git (robust to REPO_DIR being a symlink into
+    #    a subdir) so we always sync the copy that matches the pulled commit.
+    PHASE=bridge; status running bridge
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+    BRIDGE_SRC="$REPO_ROOT/playcricket_ble_bridge/playcricket_ble_bridge"
+    BRIDGE_DST="$BRIDGE_RUN_DIR/playcricket_ble_bridge"
+    if [[ -d "$BRIDGE_SRC" && -d "$BRIDGE_DST" ]]; then
+        echo "=== deploying bridge: $BRIDGE_SRC -> $BRIDGE_DST ==="
+        rsync -a --delete --exclude '__pycache__' --exclude '*.pyc' \
+            "$BRIDGE_SRC/" "$BRIDGE_DST/"
+        # The repo tree is root-owned after root's git pull; the bridge runs as
+        # 'tenumen', so hand the package back so a later manual sync/edit works.
+        chown -R tenumen:tenumen "$BRIDGE_DST"
+        echo "=== restarting bridge $(date -Iseconds) ==="
+        systemctl restart "$BRIDGE_SERVICE"
+    else
+        echo "WARN: bridge src/dst missing (src=$BRIDGE_SRC dst=$BRIDGE_DST) — skipping bridge deploy"
+    fi
 
     status done ""
     echo "=== update done $(date -Iseconds) ==="

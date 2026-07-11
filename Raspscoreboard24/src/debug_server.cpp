@@ -538,13 +538,16 @@ document.getElementById('btn-check-update').addEventListener('click', async () =
 
 document.getElementById('btn-update').addEventListener('click', async () => {
   const v = lastVersion;
+  const warn = '\n\nThis updates BOTH the scoreboard and the Bluetooth bridge, and '
+             + 'restarts both. The bridge restart drops any live phone connection and '
+             + 'clears an in-progress score — only do this BETWEEN matches, never mid-game.';
   const msg = v
-    ? `Pull latest from GitHub, rebuild, and restart?\n\nCurrent build: ${v.build_commit}\nCurrent HEAD: ${v.head_commit}`
-    : `Pull latest from GitHub, rebuild, and restart?`;
+    ? `Pull latest from GitHub, rebuild, and restart?\n\nCurrent build: ${v.build_commit}\nCurrent HEAD: ${v.head_commit}${warn}`
+    : `Pull latest from GitHub, rebuild, and restart?${warn}`;
   if (!confirm(msg)) return;
   updating = true; syncButtons();
-  showBanner('⏳ Update started — pulling & rebuilding. The scoreboard will restart '
-           + 'shortly; this page will reconnect automatically.');
+  showBanner('⏳ Update started — pulling, rebuilding the scoreboard and deploying the '
+           + 'bridge. Both services will restart; this page will reconnect automatically.');
   try {
     const r = await fetch('/api/update', { method: 'POST' });
     if (r.status === 202) {
@@ -565,7 +568,9 @@ document.getElementById('btn-update').addEventListener('click', async () => {
 document.getElementById('btn-rollback').addEventListener('click', async () => {
   const v = lastVersion;
   if (!v || !v.has_rollback) return;
-  if (!confirm(`Revert to ${v.prev_commit} and restart?`)) return;
+  if (!confirm(`Revert to ${v.prev_commit} and restart?\n\nThis rolls back BOTH the `
+             + `scoreboard and the Bluetooth bridge and restarts both. The bridge `
+             + `restart drops any live phone connection — only do this between matches.`)) return;
   try {
     const r = await fetch('/api/rollback', { method: 'POST' });
     if (r.status === 202) {
