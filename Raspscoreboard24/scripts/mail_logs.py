@@ -69,6 +69,7 @@ def compose(creds: dict, logs: list[pathlib.Path]) -> EmailMessage:
         msg.set_content("\n".join(body))
         return msg
 
+    attachments: list[tuple[pathlib.Path, bytes]] = []
     for path in logs:
         try:
             data, truncated = read_tail(path, MAX_ATTACH_BYTES)
@@ -78,9 +79,16 @@ def compose(creds: dict, logs: list[pathlib.Path]) -> EmailMessage:
             continue
         note = " (tail, truncated)" if truncated else ""
         body.append(f"  {path.name}: {len(data)} bytes{note}")
+        attachments.append((path, data))
+
+    # set_content() must run BEFORE any add_attachment() call: EmailMessage
+    # refuses set_content() once add_attachment() has made it multipart, which
+    # is what silently broke every send with a *.log file present (always,
+    # in practice) -- the button reported success but nothing was ever sent.
+    msg.set_content("\n".join(body))
+    for path, data in attachments:
         msg.add_attachment(data, maintype="text", subtype="plain",
                            filename=path.name)
-    msg.set_content("\n".join(body))
     return msg
 
 
