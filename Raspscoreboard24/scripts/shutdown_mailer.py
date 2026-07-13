@@ -66,12 +66,13 @@ def get_service_start_time(unit: str) -> dt.datetime:
     if not out or out == "n/a":
         LOG.info("service %s has no ActiveEnterTimestamp; using 1h fallback", unit)
         return fallback
-    # systemctl emits "Tue 2026-05-19 14:23:01 BST". The trailing tz
-    # abbreviation is locale-dependent and unreliable for strptime, so drop
-    # it and interpret the remainder as local time.
+    # systemctl emits "Tue 2026-05-19 14:23:01 BST" -- weekday, date, time, tz:
+    # exactly 4 space-separated tokens. The trailing tz abbreviation is
+    # locale-dependent and unreliable for strptime, so drop it (keep only the
+    # first 3 tokens) and interpret the remainder as local time.
     parts = out.split()
     try:
-        naive = dt.datetime.strptime(" ".join(parts[:4]), "%a %Y-%m-%d %H:%M:%S")
+        naive = dt.datetime.strptime(" ".join(parts[:3]), "%a %Y-%m-%d %H:%M:%S")
         return naive.astimezone()
     except Exception:
         LOG.exception("ActiveEnterTimestamp %r unparseable; using 1h fallback", out)
