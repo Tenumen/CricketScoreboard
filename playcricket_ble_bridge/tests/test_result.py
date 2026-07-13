@@ -22,6 +22,7 @@ def _two_innings(first_runs, chase_runs, chase_wkts, chase_overs,
                  team1="Aston on Trent", team2="Opponents",
                  revised_target=0):
     s = MatchState(no_of_overs=no_of_overs, players_per_side=players_per_side)
+    s.overs_limit_known = True   # as if OVR had been seen; see test below for the unknown case
     s.innings = [
         Innings(innings_number=1, team_batting_name=team1, runs=first_runs,
                 wickets=10, overs=f"{no_of_overs}.0"),
@@ -84,6 +85,38 @@ def test_win_by_one_run_is_singular():
 def test_tie():
     s = _two_innings(first_runs=160, chase_runs=160, chase_wkts=10, chase_overs="20.0")
     assert compute_result(s) == ("T", "Match tied")
+
+
+# ---------- overs limit must be learned before it can complete a chase --------
+
+def test_overs_exhausted_ignored_until_limit_learned():
+    """A timed (or 40-over) game where the app never sends OVR must not be
+    auto-completed at the 20-over default — the wall flipped to a false
+    'won by N runs' POST_MATCH splash mid-chase."""
+    s = _two_innings(first_runs=200, chase_runs=190, chase_wkts=5, chase_overs="20.0")
+    s.overs_limit_known = False
+    assert compute_result(s) is None
+
+
+def test_all_out_and_target_still_decide_without_learned_limit():
+    all_out = _two_innings(first_runs=200, chase_runs=180, chase_wkts=10, chase_overs="17.3")
+    all_out.overs_limit_known = False
+    assert compute_result(all_out) == ("W", "Aston on Trent won by 20 runs")
+    chased = _two_innings(first_runs=150, chase_runs=151, chase_wkts=4, chase_overs="18.2")
+    chased.overs_limit_known = False
+    assert compute_result(chased) == ("W", "Opponents won by 6 wickets")
+
+
+def test_ovr_token_learns_the_limit():
+    acc = MatchAccumulator()
+    acc.apply("OVB", "4.4")
+    acc.apply("OVR", "36")            # 5 (rounded up) + 36 remaining
+    s = acc.snapshot()
+    assert s.overs_limit_known is True
+    assert s.no_of_overs == 41        # mid-over proposal may overshoot by 1...
+    acc.apply("OVB", "5.0")
+    acc.apply("OVR", "35")            # ...and the on-boundary OVR corrects it
+    assert acc.snapshot().no_of_overs == 40
 
 
 # ---------- force / reopen overrides -----------------------------------------

@@ -215,15 +215,19 @@ def test_unknown_code_recorded_but_does_not_change_state():
     assert acc.unknown_codes()["ZZZ"] == 1
 
 
-def test_lwk_creates_fow_entry():
+def test_dismissal_cluster_creates_fow_entry():
+    # The fow entry is keyed on LWN (the app omits LWK when the fall score is
+    # unchanged); LWK supplies the score, LWD the dismissal.
     acc = MatchAccumulator()
     acc.apply("BTS", "100/3")
     acc.apply("LWK", "100")
+    acc.apply("LWN", "A Adams")
     acc.apply("LWD", "lbw")
     snap = acc.snapshot()
     fow = snap.innings[-1].fow
     assert len(fow) == 1
     assert fow[0].runs == 100
+    assert fow[0].batsman_out_name == "A Adams"
     assert fow[0].how_out == "lbw"
 
 
@@ -527,13 +531,15 @@ def test_last_ball_id_survives_over_rollover():
     assert snap.last_ball_runs == 4
 
 
-def test_last_wicket_id_increments_on_lwk():
+def test_last_wicket_id_increments_on_dismissal():
     acc = MatchAccumulator()
     acc.apply("BTS", "10/1")
     acc.apply("LWK", "10")
+    acc.apply("LWN", "A Adams")
     assert acc.snapshot().last_wicket_id == 1
     acc.apply("BTS", "25/2")
     acc.apply("LWK", "25")
+    acc.apply("LWN", "B Brown")
     assert acc.snapshot().last_wicket_id == 2
 
 
@@ -541,6 +547,7 @@ def test_match_detail_envelope_carries_last_event():
     acc = MatchAccumulator()
     acc.apply("COV", "4 ")
     acc.apply("LWK", "4")
+    acc.apply("LWN", "A Adams")
     env = serializers.match_detail_envelope(acc.snapshot())
     le = env["match_details"][0]["last_event"]
     assert le == {

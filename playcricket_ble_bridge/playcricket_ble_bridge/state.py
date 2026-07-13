@@ -6,9 +6,11 @@ applies one token at a time under a lock, bumps a generation counter so
 HTTP callers can detect change, and exposes a snapshot for serialisation.
 
 Innings boundary heuristic: the first time we see a BTT (batting team
-target) or the first BTN that differs from the recorded batting team
-name, we open innings_number=2. The phone has already done the
-book-keeping; we just mirror it.
+target) or a BTN naming the side that was fielding (the roles swap at a
+real innings change), we open innings_number=2. A BTN that differs but
+does NOT match the fielding side is a scorer's rename/correction and is
+applied in place — see _ensure_second_innings. The phone has already
+done the book-keeping; we just mirror it.
 
 Match-over detection is intentionally deferred — no single token reliably
 signals "match complete". The discovery log captures everything received
@@ -82,6 +84,15 @@ class Innings:
     # this is a stale connection-snapshot replay of a pre-connect wicket, not a
     # live dismissal — _h_lwn skips adding it to the card.
     _stale_wicket: bool = False
+    # Most recent LWK value (-1 = never seen). The app omits LWK when a wicket
+    # falls at the same score as the previous one (it dedupes unchanged token
+    # values), so _h_lwn reads the fall score from here rather than requiring a
+    # fresh LWK per wicket.
+    _last_lwk_score: int = -1
+    # True while dismissed[-1]/fow[-1] belong to the most recent LWN cluster.
+    # False after a stale-suppressed LWN, so the cluster's LWS/LWD can't
+    # decorate (i.e. corrupt) the PREVIOUS wicket's entries.
+    _lw_entry_open: bool = False
 
     # COV is used ONLY to fire per-ball / per-wicket event splashes now — it no
     # longer derives runs or overs (BTS/OVB own those authoritatively, and COV
@@ -127,6 +138,11 @@ class MatchState:
     away_club_id: int = 0
     status: str = "New"
     no_of_overs: int = 20
+    # True once OVR has told us the real overs limit. compute_result applies
+    # its overs-exhausted gate only when set: the 20 above is a serialisation
+    # default, and treating it as real would declare a timed or 40-over chase
+    # complete at 20 overs whenever the app never sends OVR.
+    overs_limit_known: bool = False
     players_per_side: int = 11   # all-out = players_per_side - 1 wickets
     result: str = ""
     result_description: str = ""
@@ -311,9 +327,13 @@ def compute_result(s: MatchState, force: bool = False):
     if inn2.runs >= target:
         return chase_win()
 
+    # The overs-exhausted gate only applies once OVR has told us the real
+    # limit; no_of_overs is otherwise a 20-over default, and a timed/longer
+    # game that never sends OVR must not be auto-completed at 20 overs.
     chase_complete = (
         inn2.wickets >= wkts_all_out
-        or _legal_balls_from_overs(inn2.overs) >= s.no_of_overs * 6
+        or (s.overs_limit_known
+            and _legal_balls_from_overs(inn2.overs) >= s.no_of_overs * 6)
     )
     if chase_complete or force:
         margin = (target - 1) - inn2.runs
@@ -543,12 +563,32 @@ def _current_innings(s: MatchState) -> Innings:
 
 
 def _ensure_second_innings(s: MatchState, batting_team_name: str) -> None:
-    """Open innings 2 if we're still on innings 1 and the batting side has
-    flipped. Called from BTN/BTT handlers."""
+    """Open innings 2 when the batting side genuinely flips. Called from _h_btn.
+
+    A differing BTN alone is NOT enough: scorers rename/correct team names
+    mid-innings (real discovery logs show 'Aston Test' -> 'Aston On Trent'
+    within a game), and treating a rename as an innings change mis-applies
+    every later BTS to a phantom 2nd innings — after which the auto-result
+    can declare a "win" mid-innings and latch. A genuine flip has two extra
+    signatures, both required here:
+      - innings 1 has actually been played (runs, wickets or balls > 0), and
+      - the new batting side is the side that was fielding (the roles swap;
+        the app sends the identical string for both, per the discovery logs).
+    If FTN never arrived we cannot tell a flip from a rename, so we fall back
+    to the old open-on-any-change behaviour rather than risk absorbing a real
+    innings change. BTT independently opens innings 2 when a target appears.
+    """
     cur = _current_innings(s)
-    if cur.innings_number == 1 and cur.team_batting_name and \
-       batting_team_name and batting_team_name != cur.team_batting_name:
-        s.innings.append(Innings(innings_number=2, team_batting_name=batting_team_name))
+    if cur.innings_number != 1 or not batting_team_name or \
+       not cur.team_batting_name or batting_team_name == cur.team_batting_name:
+        return
+    played = (cur.runs > 0 or cur.wickets > 0
+              or _legal_balls_from_overs(cur.overs) > 0)
+    if not played:
+        return  # pre-play correction/swap — never an innings change
+    if cur.team_fielding_name and batting_team_name != cur.team_fielding_name:
+        return  # mid-innings rename; _h_btn updates the name in place
+    s.innings.append(Innings(innings_number=2, team_batting_name=batting_team_name))
 
 
 def _h_bts(s: MatchState, value: str) -> bool:
@@ -599,19 +639,27 @@ def _h_ovb(s: MatchState, value: str) -> bool:
 
 
 def _h_ovr(s: MatchState, value: str) -> bool:
-    # Overs remaining — only useful at innings start to know the format.
+    """OVR = overs remaining. Learns the match overs limit (bowled so far,
+    rounded up, + remaining) and marks it as known — compute_result only
+    applies its overs-exhausted gate once this has been seen, so a timed game
+    that never sends OVR is never auto-completed at the 20-over default. A
+    mid-over OVR can propose one over too many (the in-progress over counted
+    on both sides); that only ever DELAYS the result and the next on-boundary
+    OVR corrects it."""
     try:
         rem = int(value or 0)
     except ValueError:
         return False
+    if rem < 0:
+        return False
     inn = _current_innings(s)
-    # Total = balls bowled / 6 + remaining.
-    legal_balls = int(inn.overs.split(".")[0]) * 6 + int(inn.overs.split(".")[-1] or 0)
-    proposed_total = (legal_balls + 5) // 6 + rem
-    if proposed_total and s.no_of_overs != proposed_total:
-        s.no_of_overs = proposed_total
-        return True
-    return False
+    proposed_total = (_legal_balls_from_overs(inn.overs) + 5) // 6 + rem
+    if proposed_total <= 0:
+        return False
+    changed = not s.overs_limit_known or s.no_of_overs != proposed_total
+    s.overs_limit_known = True
+    s.no_of_overs = proposed_total
+    return changed
 
 
 def _h_cov(s: MatchState, value: str) -> bool:
@@ -820,38 +868,52 @@ def _h_batter_strike(idx: int, s: MatchState, value: str) -> bool:
 
 
 def _h_lwk(s: MatchState, value: str) -> bool:
+    """LWK — the team score when the last wicket fell. Records the fall score
+    and classifies staleness; the wicket itself (dismissed-card entry, fow
+    entry, splash counter) is registered by _h_lwn, because the app dedupes
+    unchanged token values and OMITS LWK when a wicket falls at the same score
+    as the previous one (real logs: 63/6 then 63/7 share LWK '63' — keying the
+    wicket on an LWK change swallowed the second one).
+
+    A fall score below the current total is a stale connection-snapshot replay
+    of a pre-connect wicket, not a live dismissal — flag it so the LWN/LWS/LWD
+    that follow don't touch the card. (When sent, LWK leads the cluster and
+    BTS precedes it, so both the total and the flag are fresh at LWN time.)"""
     try:
         team_score = int(value or 0)
     except ValueError:
         return False
     inn = _current_innings(s)
-    # A fall-of-wicket score below the current total is a stale connection-
-    # snapshot replay of a pre-connect wicket, not a live dismissal — flag it so
-    # _h_lwn doesn't add a phantom batter to the card. (LWK leads the cluster, so
-    # the flag is fresh when LWN arrives.)
     inn._stale_wicket = team_score < inn.runs
-    # Last wicket: append/update a Fow entry for the most recent dismissal.
-    if not inn.fow or inn.fow[-1].runs != team_score:
-        inn.fow.append(Fow(runs=team_score, wickets=inn.wickets or len(inn.fow) + 1))
-        s.last_wicket_id += 1
-        return True
-    return False
+    inn._last_lwk_score = team_score
+    return False  # nothing served changes until LWN registers the wicket
 
 
 def _h_lwn(s: MatchState, value: str) -> bool:
-    """LWN — dismissed batter's name. A non-blank value that differs from the
-    previous one starts a new dismissed-batter entry (LWS/LWD then decorate it).
-    The app re-sends the cluster (same name) and later blanks it; both are no-ops
-    here. A stale connection-snapshot wicket (see _h_lwk) updates the name guard
-    but is not added to the card."""
+    """LWN — dismissed batter's name; the authoritative "a wicket happened"
+    signal (sent for every wicket, unlike LWK — see _h_lwk). A non-blank value
+    that differs from the previous one registers the dismissal: a new
+    dismissed-card entry (LWS/LWD then decorate it), a fall-of-wicket entry,
+    and a last_wicket_id bump for the wicket splash. The app re-sends the
+    cluster (same name) and later blanks it; both are no-ops. A stale
+    connection-snapshot wicket (see _h_lwk) updates the name guard but
+    registers nothing — and closes the cluster so its LWS/LWD can't decorate
+    (corrupt) the previous wicket's entries."""
     name = value.strip()
-    if not name or name == _current_innings(s)._last_lwn_name:
-        return False
     inn = _current_innings(s)
+    if not name or name == inn._last_lwn_name:
+        return False
     inn._last_lwn_name = name
     if inn._stale_wicket:
+        inn._lw_entry_open = False
         return False
     inn.dismissed.append(Bat(position=len(inn.dismissed) + 1, batsman_name=name))
+    inn._lw_entry_open = True
+    fall = inn._last_lwk_score if inn._last_lwk_score >= 0 else inn.runs
+    inn.fow.append(Fow(runs=fall,
+                       wickets=inn.wickets or len(inn.fow) + 1,
+                       batsman_out_name=name))
+    s.last_wicket_id += 1
     return True
 
 
@@ -860,7 +922,7 @@ def _h_lws(s: MatchState, value: str) -> bool:
     the final runs/balls to the current dismissed entry."""
     v = value.strip()
     inn = _current_innings(s)
-    if not v or not inn.dismissed:
+    if not v or not inn.dismissed or not inn._lw_entry_open:
         return False
     runs_str = v.split("(", 1)[0].strip()
     try:
@@ -885,13 +947,16 @@ def _h_lwd(s: MatchState, value: str) -> bool:
     code = value.strip()
     name = T.DISMISSAL_NAMES.get(code, code)
     inn = _current_innings(s)
+    # Decorate only the entries created by this cluster's LWN — never on the
+    # blank re-send (name == "") and never when the cluster was suppressed as
+    # stale, where fow[-1]/dismissed[-1] are the PREVIOUS wicket's entries.
+    if not name or not inn._lw_entry_open:
+        return False
     changed = False
     if inn.fow and inn.fow[-1].how_out != name:
         inn.fow[-1].how_out = name
         changed = True
-    # Decorate the current dismissed entry too, but never wipe it on the blank
-    # re-send (name == "").
-    if name and inn.dismissed and inn.dismissed[-1].how_out != name:
+    if inn.dismissed and inn.dismissed[-1].how_out != name:
         inn.dismissed[-1].how_out = name
         changed = True
     return changed
